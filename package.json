@@ -1,0 +1,15 @@
+{
+    "name": "lri-prototype",
+    "version": "0.1.0",
+    "description": "Frontend + FastAPI backend scaffold for LRI prototype",
+    "scripts": {
+        "frontend": "http-server ./ -p 3000 -c-1",
+        "backend": "bash -lc \"source .venv/bin/activate && python -m uvicorn back:app --reload --host 127.0.0.1 --port 8000\"",
+        "dev": "concurrently --kill-others-on-fail \"npm:backend\" \"npm:frontend\"",
+        "start": "npm run frontend"
+    },
+    "devDependencies": {
+        "concurrently": "^8.2.0",
+        "http-server": "^14.1.1"
+    }
+}

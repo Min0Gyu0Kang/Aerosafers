@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>LRI 엔진 프로토타입 데모</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        #map-area { width: 800px; height: 400px; background-color: #e0e0e0; border: 1px solid #333; display: flex; justify-content: center; align-items: center; cursor: pointer; }
+        #result-box { margin-top: 20px; padding: 15px; border: 2px solid #ccc; white-space: pre-wrap; }
+        .grade-red { color: white; background-color: red; padding: 5px; border-radius: 4px; font-weight: bold; }
+        .grade-yellow { color: black; background-color: yellow; padding: 5px; border-radius: 4px; font-weight: bold; }
+        .grade-green { color: white; background-color: green; padding: 5px; border-radius: 4px; font-weight: bold; }
+        .hard-stop { border: 3px solid black; animation: blinker 1s linear infinite; }
+        @keyframes blinker { 50% { opacity: 0; } }
+    </style>
+</head>
+<body>
+
+    <h2>📍 LRI 엔진 시연 (맵 클릭)</h2>
+    <p>맵 영역을 클릭하여 해당 가상 좌표의 LRI를 계산합니다. (실제 Mapbox/Leaflet 대신 단순 박스 사용)</p>
+    
+    <div id="map-area">
+        맵 클릭 시 LRI 계산 시작 (Lat: 37.5, Lon: 127.0 등 임의 좌표 전송)
+    </div>
+
+    <div>
+      <label for="scenario">Scenario:</label>
+      <select id="scenario">
+        <option value="random">random</option>
+        <option value="very_good">very_good</option>
+        <option value="severe">severe</option>
+        <option value="warning">warning</option>
+        <option value="hard_stop">hard_stop</option>
+      </select>
+    </div>
+
+    <div id="result-box">
+        여기에 LRI 계산 결과가 표시됩니다.
+    </div>
+
+    <script>
+        document.getElementById('map-area').addEventListener('click', async function(event) {
+            const mockLat = 37.5 + (Math.random() - 0.5) * 0.1;
+            const mockLon = 127.0 + (Math.random() - 0.5) * 0.1;
+            const scenario = document.getElementById('scenario').value;
+            
+            const resultBox = document.getElementById('result-box');
+            resultBox.innerHTML = `⏳ ${mockLat.toFixed(4)}, ${mockLon.toFixed(4)} 좌표 분석 중...`;
+
+            try {
+                const response = await fetch('http://127.0.0.1:8000/api/calculate_lri', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ lat: mockLat, lon: mockLon, scenario })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP Error! Status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                let gradeClass = '';
+                if (data.Grade.includes('RED')) {
+                    gradeClass = 'grade-red';
+                } else if (data.Grade.includes('YELLOW')) {
+                    gradeClass = 'grade-yellow';
+                } else {
+                    gradeClass = 'grade-green';
+                }
+                
+                let gradeHtml = `<span class="${gradeClass}">${data.Grade} (LRI: ${data.LRI})</span>`;
+                if (data.HardStop) {
+                    gradeHtml = `<span class="${gradeClass} hard-stop">🛑 ${data.Grade} (LRI: ${data.LRI})</span>`;
+                }
+
+                resultBox.innerHTML = `
+                    <h3>✅ 분석 결과 (${data.location})</h3>
+                    <p><strong>최종 등급:</strong> ${gradeHtml}</p>
+                    <p><strong>3대 위험 요소 점수:</strong> V: ${data.V_score} / N: ${data.N_score} / S: ${data.S_score}</p>
+                    
+                    <h4>📍 근거 (위성 데이터 융합)</h4>
+                    <ul>
+                        ${data.Evidence.map(e => `<li>${e}</li>`).join('')}
+                    </ul>
+                `;
+
+            } catch (error) {
+                resultBox.innerHTML = `❌ API 호출 오류: ${error.message}. Python 서버가 실행 중인지 확인하세요.`;
+            }
+        });
+    </script>
+</body>
+</html>
