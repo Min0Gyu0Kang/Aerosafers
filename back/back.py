@@ -5,10 +5,12 @@ from typing import Dict, Any
 import numpy as np
 import random
 import json
-# GeoPandas는 실제 지리공간 처리 시 필요. 여기서는 구조만 보여줍니다.
-# import geopandas as gpd
+# GeoPandas는 실제 지리공간 처리 시 필요.
 
 from fastapi.middleware.cors import CORSMiddleware
+import folium
+from fastapi.responses import HTMLResponse
+import geopandas as gpd
 
 app = FastAPI(title="LRI Engine Backend Prototype")
 
@@ -182,6 +184,32 @@ async def calculate_lri_endpoint(payload: Dict[str, Any]) -> Dict[str, Any]:
     ]
 
     return result
+
+@app.get("/api/map", response_class=HTMLResponse)
+async def get_map():
+    """
+    Generates a Leaflet map using GeoPandas and Folium.
+    """
+    # Example GeoDataFrame (replace with your actual GeoPandas data)
+    gdf = gpd.GeoDataFrame(
+        {
+            "name": ["Point A", "Point B"],
+            "geometry": gpd.points_from_xy([127.0, 127.1], [37.5, 37.6]),
+        }
+    )
+
+    # Create a Folium map centered on the first point
+    m = folium.Map(location=[37.5, 127.0], zoom_start=12)
+
+    # Add GeoPandas data to the map
+    for _, row in gdf.iterrows():
+        folium.Marker(
+            location=[row.geometry.y, row.geometry.x],
+            popup=row["name"],
+        ).add_to(m)
+
+    # Render the map as HTML
+    return m._repr_html_()
 
 # Signal handler for graceful shutdown
 def signal_handler(sig, frame):

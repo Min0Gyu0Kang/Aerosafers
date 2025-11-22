@@ -17,10 +17,10 @@
 <body>
 
     <h2>📍 LRI 엔진 시연 (맵 클릭)</h2>
-    <p>맵 영역을 클릭하여 해당 가상 좌표의 LRI를 계산합니다. (실제 Mapbox/Leaflet 대신 단순 박스 사용)</p>
-    
+    <p>맵 영역을 클릭하여 해당 가상 좌표의 LRI를 계산합니다.</p>
+    <p>맵 클릭 시 LRI 계산 시작 (Lat: 37.5, Lon: 127.0 등 임의 좌표 전송)</p>
     <div id="map-area">
-        맵 클릭 시 LRI 계산 시작 (Lat: 37.5, Lon: 127.0 등 임의 좌표 전송)
+        <iframe id="leaflet-map" style="width: 100%; height: 100%; border: none;"></iframe>
     </div>
 
     <div>
@@ -89,6 +89,25 @@
                 resultBox.innerHTML = `❌ API 호출 오류: ${error.message}. Python 서버가 실행 중인지 확인하세요.`;
             }
         });
+
+        async function loadMap() {
+            const mapFrame = document.getElementById("leaflet-map");
+            try {
+                const response = await fetch("http://127.0.0.1:8000/api/map");
+                if (!response.ok) {
+                    throw new Error(`Failed to load map: ${response.status}`);
+                }
+                const mapHtml = await response.text();
+                const blob = new Blob([mapHtml], { type: "text/html" });
+                mapFrame.src = URL.createObjectURL(blob);
+            } catch (error) {
+                console.error("Error loading map:", error);
+                mapFrame.innerHTML = "Failed to load map.";
+            }
+        }
+
+        // Load the map when the page loads
+        loadMap();
     </script>
 </body>
 </html>

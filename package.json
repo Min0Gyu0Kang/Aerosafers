@@ -3,8 +3,8 @@
     "version": "0.1.0",
     "description": "Frontend + FastAPI backend scaffold for LRI prototype",
     "scripts": {
-        "frontend": "http-server ./ -p 3000 -c-1",
-        "backend": "bash -lc \"source .venv/bin/activate && python -m uvicorn back:app --reload --host 127.0.0.1 --port 8000\"",
+        "frontend": "http-server ./front -p 3000 -c-1 -o",
+        "backend": "bash -lc \"source .venv/bin/activate && python -m uvicorn back.back:app --host 127.0.0.1 --port 8000 --timeout-keep-alive 5\"",
         "dev": "concurrently --kill-others-on-fail \"npm:backend\" \"npm:frontend\"",
         "start": "npm run frontend",
         "build": "echo 'Build script placeholder'"
