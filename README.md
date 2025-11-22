@@ -1,5 +1,5 @@
 <img width="1003" height="710" alt="image" src="https://github.com/user-attachments/assets/cef0a540-6693-4020-8502-9f8bc87c3b42" /># LRI 기반 모의 테스트(Mock Test)
-## 2025 스페이스 해커톤 Aerosafers팀 모의실험용 웹사이트
+## 2025 스페이스 해커톤 Aerosafers팀 웹사이트
 
 초기 화면
 <img width="1842" height="862" alt="image" src="https://github.com/user-attachments/assets/6e190259-0b5e-49e0-a210-e8d279f89639" />
