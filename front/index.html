@@ -90,7 +90,7 @@
                 const response = await fetch('http://127.0.0.1:8000/api/calculate_lri', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ lat, lon, scenario: "random" }) // 시나리오는 'random'으로 고정
+                    body: JSON.stringify({ lat, lon }) // 'scenario' is no longer needed
                 });
 
                 if (!response.ok) throw new Error(`HTTP Error! Status: ${response.status}`);
@@ -118,7 +118,7 @@
             resultBox.innerHTML = `
                 <h3>✅ 분석 결과 (${data.location})</h3>
                 <p><strong>최종 등급:</strong> ${gradeHtml}</p>
-                <p><strong>3대 위험 요소 점수:</strong> V: ${data.V_score} / N: ${data.N_score} / S: ${data.S_score}</p>
+                <p><strong>3대 위험 요소 점수:</strong> W: ${data.W_score} / N: ${data.N_score} / T: ${data.T_score}</p>
                 <h4>📍 근거 데이터</h4>
                 <ul>
                     ${data.Evidence.map(e => `<li>${e}</li>`).join('')}
