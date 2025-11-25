@@ -9,7 +9,8 @@
         "start": "npm run frontend",
         "build": "npm run build:frontend && npm run build:backend",
         "build:frontend": "echo 'Building frontend...' && mkdir -p dist && cp -r front/* dist/",
-        "build:backend": "echo 'Setting up backend...' && python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt"   },
+        "build:backend": "echo 'Setting up backend...' && python3 -m venv .venv && . .venv/bin/activate && pip install --upgrade pip && pip install -r requirements.txt"
+    },
     "devDependencies": {
         "concurrently": "^8.2.0",
         "http-server": "^14.1.1"
