@@ -16,7 +16,7 @@ import os
 app = FastAPI(title="LRI Engine Backend Prototype")
 
 # Get allowed origins from environment variable, with a fallback for local dev
-allowed_origins = os.environ.get("ALLOWED_ORIGINS", "http://127.0.0.1:3000,http://localhost:3000").split(",")
+allowed_origins = os.environ.get("ALLOWED_ORIGINS", "http://127.0.0.1:3000,http://localhost:8000").split(",")
 
 # Add your EC2 domain here for production
 # For example: "http://your-ec2-domain.com"
@@ -36,7 +36,7 @@ app.add_middleware(
 # LRI 모델 상수 및 파라미터 (회전익 기준)
 W_W, W_N, W_T = 0.45, 0.35, 0.20  # 가중치 (w_W, w_N, w_T)
 AL_H, AL_V = 40, 50              # 항법 한계 (AL_H, AL_V) - APV-I 기준
-TAU_RED, TAU_YELLOW = 60, 80     # 임계값 (tau) -- FIXED: red < yellow
+TAU_RED, TAU_YELLOW, TAU_BLUE = 60, 80, 90 # 임계값 (Severe, Warning, Good)
 
 # ----------------------------------------------------------------------
 # 헬퍼 함수: LRI 수식 구현
@@ -80,14 +80,14 @@ def calculate_lri(data: Dict[str, Any]) -> Dict[str, Any]:
                        ((HPL > AL_H) and (VPL > AL_V)) or \
                        (delta_sigma_0 > 3.0 and core_percent >= 30)
 
-        # 6. 등급 판단
+        # 6. 등급 판단 (4-level system)
         if is_hard_stop:
             grade = "RED (HARD STOP)"
-        elif LRI < TAU_RED:
-            grade = "RED (SEVERE)"
-        elif LRI < TAU_YELLOW:
-            grade = "YELLOW (WARNING)"
-        else:
+        elif LRI < TAU_RED: # < 60
+            grade = "YELLOW (SEVERE)"
+        elif LRI < TAU_YELLOW: # < 80
+            grade = "BLUE (WARNING)"
+        else: # >= 80
             grade = "GREEN (VERY GOOD)"
         
         return {
@@ -251,85 +251,320 @@ async def calculate_lri_endpoint(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     return result
 
-@app.get("/api/map", response_class=HTMLResponse)
-async def get_map():
+@app.get("/api/lri_grid")
+async def get_lri_grid(lat: float, lon: float, lri: float):
     """
-    Generates a Leaflet map using GeoPandas and Folium.
+    Generates a GeoJSON grid around a central point to simulate a choropleth map.
+    The LRI value decays from the center.
     """
-    # Lazy import for faster startup
-    import folium
-    from folium.elements import Element
+    grid_size = 11  # Grid dimensions (must be odd)
+    cell_size = 0.01  # Degrees per cell
+    
+    features = []
+    center_offset = (grid_size - 1) / 2
 
-    # 1. 위성 타일 레이어 변경
+    for i in range(grid_size):
+        for j in range(grid_size):
+            # Calculate distance from center
+            dist_x = i - center_offset
+            dist_y = j - center_offset
+            distance = np.sqrt(dist_x**2 + dist_y**2)
+
+            # Decay LRI based on distance (simple linear decay)
+            max_dist = np.sqrt(2 * center_offset**2)
+            decay_factor = max(0, 1 - (distance / max_dist))
+            cell_lri = lri * decay_factor
+
+            # Define polygon for the grid cell
+            min_lon = lon + (j - center_offset) * cell_size - (cell_size / 2)
+            min_lat = lat + (i - center_offset) * cell_size - (cell_size / 2)
+            max_lon = min_lon + cell_size
+            max_lat = min_lat + cell_size
+            
+            polygon = [[
+                [min_lon, min_lat], [max_lon, min_lat],
+                [max_lon, max_lat], [min_lon, max_lat],
+                [min_lon, min_lat]
+            ]]
+
+            features.append({
+                "type": "Feature",
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": polygon
+                },
+                "properties": {
+                    "lri": cell_lri
+                }
+            })
+
+    return {"type": "FeatureCollection", "features": features}
+
+
+@app.get("/api/map")
+async def get_map(lat: float = None, lon: float = None, lri: float = None):
+    """
+    Generates a Folium map with FIR boundary, optional marker, and optional choropleth.
+    """
+    import folium
+    from folium import plugins
+    import branca.colormap as cm
+
+    # Create base map with a slightly closer initial zoom
     m = folium.Map(
-        location=[35.5, 128.0], 
-        zoom_start=6, 
+        location=[35.5, 128.0],
+        zoom_start=7,
         tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-        attr="Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community"
+        attr="Esri World Imagery"
     )
 
-    # Add BeautifyMarker plugin resources to the map header
-    m.get_root().header.add_child(folium.CssLink("https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css"))
-    m.get_root().header.add_child(folium.CssLink("https://cdn.jsdelivr.net/npm/leaflet-beautify-marker@1.0.9/dist/leaflet-beautify-marker.min.css"))
-    m.get_root().header.add_child(folium.JavascriptLink("https://cdn.jsdelivr.net/npm/leaflet-beautify-marker@1.0.9/dist/leaflet-beautify-marker.min.js"))
-
-
-    # 2. 인천 FIR 경계선 GeoJSON 파일 로드 및 지도에 추가
+    # Add FIR boundary
     try:
         fir_gdf = gpd.read_file("back/incheon_fir.geojson")
         folium.GeoJson(
             fir_gdf,
             name='Incheon FIR',
-            style_function=lambda x: {'color': 'yellow', 'weight': 2, 'fillOpacity': 0}
+            style_function=lambda x: {
+                'color': 'yellow', 
+                'weight': 2, 
+                'fillOpacity': 0,
+                'interactive': False  # This allows clicks to pass through
+            }
         ).add_to(m)
     except Exception as e:
-        # GeoJSON 파일이 없어도 맵은 로드되도록 예외 처리
-        print(f"Could not load FIR GeoJSON: {e}")
+        print(f"[LRI DEBUG] FIR load failed: {e}")
 
-    # 3. 부모 창과 통신하기 위한 스크립트 추가
-    # - 지도 클릭 시 좌표를 부모 창으로 전송
-    # - 부모 창에서 받은 좌표로 마커(비행기 아이콘) 추가
-    script = """
-        <script>
-            // Increase the drag threshold to make clicks more reliable. Default is 5.
-            L.Draggable.DRAGGING_THRESHOLD = 15;
+    # Add plane marker if coordinates provided
+    if lat is not None and lon is not None:
+        try:
+            # Create plane icon using BeautifyIcon plugin
+            icon_plane = folium.plugins.BeautifyIcon(
+                icon="plane",
+                border_color="#666666",
+                text_color="#666666",
+                icon_shape="triangle"
+            )
+            
+            folium.Marker(
+                location=[lat, lon],
+                icon=icon_plane,
+                popup=f"Selected Location<br>Lat: {lat:.4f}<br>Lon: {lon:.4f}"
+            ).add_to(m)
+            
+            # Center map on marker with a consistent, closer zoom
+            m.location = [lat, lon]
+            m.zoom_start = 11
+            print(f"[LRI DEBUG] Plane marker added at ({lat}, {lon})")
+        except Exception as e:
+            print(f"[LRI ERROR] Failed to add plane marker: {e}")
 
-            // Use L.BeautifyIcon to create a plane icon
-            var planeIcon = L.BeautifyIcon.icon({
-                icon: 'plane',
-                iconShape: 'circle',
-                borderColor: 'gray',
-                textColor: 'black',
-                backgroundColor: 'transparent'
-            });
-            var marker;
-
-            // 지도 클릭 시 부모 창으로 좌표 전송
-            this.on('click', function(e) {
-                parent.postMessage({
-                    type: 'MAP_CLICK',
-                    lat: e.latlng.lat,
-                    lon: e.latlng.lng
-                }, '*');
-            });
-
-            // 부모 창으로부터 메시지 수신 (마커 추가용)
-            window.addEventListener('message', function(event) {
-                const { type, lat, lon } = event.data;
-                if (type === 'ADD_MARKER') {
-                    if (marker) {
-                        this.removeLayer(marker);
-                    }
-                    marker = L.marker([lat, lon], {icon: planeIcon}).addTo(this);
-                    this.setView([lat, lon], 8); // 마커 위치로 뷰 이동
+    # Add choropleth if LRI provided
+    if lat is not None and lon is not None and lri is not None:
+        try:
+            # Generate grid data with a larger cell size
+            grid_size = 11
+            cell_size = 10.  # Increased to make the grid larger
+            center_offset = (grid_size - 1) / 2
+            
+            features = []
+            for i in range(grid_size):
+                for j in range(grid_size):
+                    dist_x = i - center_offset
+                    dist_y = j - center_offset
+                    distance = np.sqrt(dist_x**2 + dist_y**2)
+                    
+                    max_dist = np.sqrt(2 * center_offset**2)
+                    decay_factor = max(0, 1 - (distance / max_dist))
+                    cell_lri = lri * decay_factor
+                    
+                    min_lon = lon + (j - center_offset) * cell_size - (cell_size / 2)
+                    min_lat = lat + (i - center_offset) * cell_size - (cell_size / 2)
+                    max_lon = min_lon + cell_size
+                    max_lat = min_lat + cell_size
+                    
+                    polygon = [[
+                        [min_lon, min_lat], [max_lon, min_lat],
+                        [max_lon, max_lat], [min_lon, max_lat],
+                        [min_lon, min_lat]
+                    ]]
+                    
+                    features.append({
+                        "type": "Feature",
+                        "geometry": {"type": "Polygon", "coordinates": polygon},
+                        "properties": {"lri": cell_lri}
+                    })
+            
+            geojson_data = {"type": "FeatureCollection", "features": features}
+            
+            # Define color function
+            def style_function(feature):
+                lri_val = feature['properties']['lri']
+                if lri_val < 60:
+                    color = '#ff6961'  # Pastel Red
+                elif lri_val < 80:
+                    color = '#fdfd96'  # Pastel Yellow
+                else:
+                    color = '#77dd77'  # Pastel Green
+                
+                return {
+                    'fillColor': color,
+                    'color': 'white',
+                    'weight': 0.3,
+                    'fillOpacity': 0.5
                 }
-            }.bind(this));
-        </script>
-    """
-    m.get_root().html.add_child(Element(script))
+            
+            folium.GeoJson(
+                geojson_data,
+                style_function=style_function,
+                name='LRI Risk Map'
+            ).add_to(m)
+            print(f"[LRI DEBUG] Choropleth added with {len(features)} cells, LRI={lri}")
+        except Exception as e:
+            print(f"[LRI ERROR] Failed to add choropleth: {e}")
 
-    # Render the map as HTML
-    return m._repr_html_()
+        # Add legend using Folium's colormap
+        try:
+            from branca.element import Template, MacroElement
+            
+            legend_template = '''
+            {% macro html(this, kwargs) %}
+            <div style="
+                position: fixed; 
+                bottom: 50px; 
+                right: 50px; 
+                width: 200px; 
+                background-color: white; 
+                border: 2px solid grey; 
+                z-index: 9999; 
+                font-size: 14px;
+                padding: 15px;
+                border-radius: 5px;
+                box-shadow: 0 0 10px rgba(0,0,0,0.2);
+            ">
+                <p style="margin: 0 0 10px 0; font-weight: bold; font-size: 16px; text-align: center;">LRI Risk Scale</p>
+                <div style="margin: 8px 0; display: flex; align-items: center;">
+                    <span style="background-color: #77dd77; width: 30px; height: 20px; display: inline-block; border-radius: 3px; margin-right: 10px;"></span>
+                    <span style="flex: 1;">Very Good</span>
+                </div>
+                <div style="margin: 8px 0; display: flex; align-items: center;">
+                    <span style="background-color: #aec6cf; width: 30px; height: 20px; display: inline-block; border-radius: 3px; margin-right: 10px;"></span>
+                    <span style="flex: 1;">Warning</span>
+                </div>
+                <div style="margin: 8px 0; display: flex; align-items: center;">
+                    <span style="background-color: #fdfd96; width: 30px; height: 20px; display: inline-block; border-radius: 3px; margin-right: 10px;"></span>
+                    <span style="flex: 1;">Severe</span>
+                </div>
+                <div style="margin: 8px 0; display: flex; align-items: center;">
+                    <span style="background-color: #ff6961; width: 30px; height: 20px; display: inline-block; border-radius: 3px; margin-right: 10px;"></span>
+                    <span style="flex: 1;">Hard Stop</span>
+                </div>
+            </div>
+            {% endmacro %}
+            '''
+            
+            legend_macro = MacroElement()
+            legend_macro._template = Template(legend_template)
+            m.get_root().add_child(legend_macro)
+            print("[LRI DEBUG] Legend added successfully")
+        except Exception as e:
+            print(f"[LRI ERROR] Failed to add legend: {e}")
+
+    # Add click handler and custom pin mode button via JavaScript
+    try:
+        click_script = '''
+        <script>
+        var map = null;
+        
+        function findMap() {
+            var keys = Object.keys(window).filter(k => window[k] && window[k]._leaflet_id);
+            return keys.length > 0 ? window[keys[0]] : null;
+        }
+        
+        function setupMapInteractions() {
+            map = findMap();
+            if (map) {
+                // --- Custom Pin Mode Control ---
+                var isPinModeActive = false;
+                var PinControl = L.Control.extend({
+                    onAdd: function(map) {
+                        var container = L.DomUtil.create('div', 'leaflet-bar leaflet-control');
+                        var button = L.DomUtil.create('a', 'leaflet-control-button', container);
+                        button.innerHTML = '📌'; // Pin emoji
+                        button.href = '#';
+                        button.role = 'button';
+                        button.title = 'Toggle Pin Mode';
+                        
+                        L.DomEvent.on(button, 'click', L.DomEvent.stop).on(button, 'click', function() {
+                            isPinModeActive = !isPinModeActive;
+                            if (isPinModeActive) {
+                                L.DomUtil.addClass(button, 'active');
+                                map.dragging.disable();
+                                map.getContainer().style.cursor = 'crosshair';
+                            } else {
+                                L.DomUtil.removeClass(button, 'active');
+                                map.dragging.enable();
+                                map.getContainer().style.cursor = '';
+                            }
+                        });
+                        
+                        return container;
+                    }
+                });
+                map.addControl(new PinControl({ position: 'topleft' }));
+
+                // --- Map Click Handler ---
+                map.on('click', function(e) {
+                    // Always send click coordinates to parent for analysis
+                    parent.postMessage({
+                        type: 'MAP_CLICK',
+                        lat: e.latlng.lat,
+                        lon: e.latlng.lng
+                    }, '*');
+                });
+
+                // --- Notify Parent that Map is Ready ---
+                parent.postMessage({ type: 'MAP_READY' }, '*');
+            } else {
+                setTimeout(setupMapInteractions, 100);
+            }
+        }
+        
+        // --- Custom CSS for the button ---
+        var style = document.createElement('style');
+        style.innerHTML = `
+            .leaflet-control-button {
+                font-size: 1.4em;
+                line-height: 28px;
+                text-align: center;
+                width: 30px;
+                height: 30px;
+                background-color: #fff;
+                border-radius: 4px;
+            }
+            .leaflet-control-button.active {
+                background-color: #d4edff;
+            }
+        `;
+        document.head.appendChild(style);
+
+        // --- Initializer ---
+        if (document.readyState === 'complete') {
+            setupMapInteractions();
+        } else {
+            window.addEventListener('load', setupMapInteractions);
+        }
+        </script>
+        '''
+        m.get_root().html.add_child(folium.Element(click_script))
+        print("[LRI DEBUG] Click handler and Pin Mode script added successfully")
+    except Exception as e:
+        print(f"[LRI ERROR] Failed to add custom map script: {e}")
+
+    try:
+        return HTMLResponse(content=m._repr_html_())
+    except Exception as e:
+        print(f"[LRI ERROR] Failed to generate HTML response: {e}")
+        raise HTTPException(status_code=500, detail=f"Map generation failed: {str(e)}")
 
 # Signal handler for graceful shutdown
 def signal_handler(sig, frame):
