@@ -190,23 +190,30 @@ async def get_map():
     """
     Generates a Leaflet map using GeoPandas and Folium.
     """
-    # Example GeoDataFrame (replace with your actual GeoPandas data)
-    gdf = gpd.GeoDataFrame(
-        {
-            "name": ["Point A", "Point B"],
-            "geometry": gpd.points_from_xy([127.0, 127.1], [37.5, 37.6]),
-        }
+    # Lazy import for faster startup
+    import folium
+    import geopandas as gpd
+
+    # 1. 위성 타일 레이어 변경 (Esri World Imagery를 아리랑/천리안 대용으로 사용)
+    m = folium.Map(
+        location=[35.5, 128.0], 
+        zoom_start=6, 
+        tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        attr="Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community"
     )
 
-    # Create a Folium map centered on the first point
-    m = folium.Map(location=[37.5, 127.0], zoom_start=12)
-
-    # Add GeoPandas data to the map
-    for _, row in gdf.iterrows():
-        folium.Marker(
-            location=[row.geometry.y, row.geometry.x],
-            popup=row["name"],
+    # 2. 인천 FIR 경계선 GeoJSON 파일 로드 및 지도에 추가
+    try:
+        fir_gdf = gpd.read_file("back/incheon_fir.geojson")
+        folium.GeoJson(
+            fir_gdf,
+            name='Incheon FIR',
+            style_function=lambda x: {'color': 'yellow', 'weight': 2, 'fillOpacity': 0.1}
         ).add_to(m)
+    except Exception as e:
+        # GeoJSON 파일이 없어도 맵은 로드되도록 예외 처리
+        print(f"Could not load FIR GeoJSON: {e}")
+
 
     # Render the map as HTML
     return m._repr_html_()
