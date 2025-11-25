@@ -4,9 +4,16 @@
     <meta charset="UTF-8">
     <title>LRI 엔진 프로토타입 데모</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        #map-area { width: 800px; height: 400px; background-color: #e0e0e0; border: 1px solid #333; display: flex; justify-content: center; align-items: center; cursor: pointer; }
-        #result-box { margin-top: 20px; padding: 15px; border: 2px solid #ccc; white-space: pre-wrap; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif; margin: 0; display: flex; height: 100vh; }
+        #left-panel { width: 350px; padding: 20px; box-shadow: 2px 0 5px rgba(0,0,0,0.1); overflow-y: auto; }
+        #map-container { flex-grow: 1; height: 100%; }
+        #map-area { width: 100%; height: 100%; background-color: #e0e0e0; border: none; }
+        #result-box { margin-top: 20px; padding: 15px; border: 2px solid #ccc; white-space: pre-wrap; background-color: #f9f9f9; }
+        h2, h3 { border-bottom: 2px solid #eee; padding-bottom: 10px; }
+        label { display: block; margin-top: 10px; font-weight: bold; }
+        input[type="text"] { width: calc(100% - 10px); padding: 5px; margin-top: 5px; }
+        button { width: 100%; padding: 10px; margin-top: 20px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; }
+        button:hover { background-color: #0056b3; }
         .grade-red { color: white; background-color: red; padding: 5px; border-radius: 4px; font-weight: bold; }
         .grade-yellow { color: black; background-color: yellow; padding: 5px; border-radius: 4px; font-weight: bold; }
         .grade-green { color: white; background-color: green; padding: 5px; border-radius: 4px; font-weight: bold; }
@@ -16,97 +23,123 @@
 </head>
 <body>
 
-    <h2>📍 LRI 엔진 시연 (맵 클릭)</h2>
-    <p>맵 영역을 클릭하여 해당 가상 좌표의 LRI를 계산합니다.</p>
-    <p>맵 클릭 시 LRI 계산 시작 </p>
-    <div id="map-area">
-        <iframe id="leaflet-map" style="width: 100%; height: 100%; border: none;"></iframe>
+    <div id="left-panel">
+        <h2>LRI 분석 엔진</h2>
+        
+        <div>
+            <label for="lat-input">위도 (Latitude):</label>
+            <input type="text" id="lat-input" placeholder="예: 37.45">
+
+            <label for="lon-input">경도 (Longitude):</label>
+            <input type="text" id="lon-input" placeholder="예: 126.78">
+
+            <button id="submit-coords">좌표로 분석</button>
+        </div>
+
+        <div id="result-box">
+            맵을 클릭하거나 좌표를 입력하여 분석을 시작하세요.
+        </div>
     </div>
 
-    <!-- <div>
-      <label for="scenario">Scenario:</label>
-      <select id="scenario">
-        <option value="random">random</option>
-        <option value="very_good">very_good</option>
-        <option value="severe">severe</option>
-        <option value="warning">warning</option>
-        <option value="hard_stop">hard_stop</option>
-      </select>
-    </div> -->
-
-    <div id="result-box">
-        여기에 LRI 계산 결과가 표시됩니다.
+    <div id="map-container">
+        <iframe id="map-area" title="Interactive Map"></iframe>
     </div>
 
     <script>
-        document.getElementById('map-area').addEventListener('click', async function(event) {
-            const mockLat = 37.5 + (Math.random() - 0.5) * 0.1;
-            const mockLon = 127.0 + (Math.random() - 0.5) * 0.1;
-            const scenario = document.getElementById('scenario').value;
-            
-            const resultBox = document.getElementById('result-box');
-            resultBox.innerHTML = `⏳ ${mockLat.toFixed(4)}, ${mockLon.toFixed(4)} 좌표 분석 중...`;
+        const latInput = document.getElementById('lat-input');
+        const lonInput = document.getElementById('lon-input');
+        const submitButton = document.getElementById('submit-coords');
+        const resultBox = document.getElementById('result-box');
+        const mapFrame = document.getElementById("map-area");
+
+        // 1. 좌표 입력 후 분석 요청
+        submitButton.addEventListener('click', () => {
+            const lat = parseFloat(latInput.value);
+            const lon = parseFloat(lonInput.value);
+
+            if (!isNaN(lat) && !isNaN(lon)) {
+                // 지도에 마커 표시 요청
+                mapFrame.contentWindow.postMessage({ type: 'ADD_MARKER', lat, lon }, '*');
+                // LRI 분석 요청
+                requestLriAnalysis(lat, lon);
+            } else {
+                alert('유효한 위도와 경도를 입력하세요.');
+            }
+        });
+
+        // 2. 지도 클릭 시 좌표 받아오기
+        window.addEventListener('message', event => {
+            // 메시지가 맵 iframe으로부터 온 것인지 확인
+            if (event.source !== mapFrame.contentWindow) {
+                return;
+            }
+
+            const { type, lat, lon } = event.data;
+            if (type === 'MAP_CLICK') {
+                latInput.value = lat.toFixed(6);
+                lonInput.value = lon.toFixed(6);
+                requestLriAnalysis(lat, lon);
+            }
+        });
+
+        // 3. LRI 분석 API 호출 함수
+        async function requestLriAnalysis(lat, lon) {
+            resultBox.innerHTML = `⏳ ${lat.toFixed(4)}, ${lon.toFixed(4)} 좌표 분석 중...`;
 
             try {
                 const response = await fetch('http://127.0.0.1:8000/api/calculate_lri', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ lat: mockLat, lon: mockLon, scenario })
+                    body: JSON.stringify({ lat, lon, scenario: "random" }) // 시나리오는 'random'으로 고정
                 });
 
-                if (!response.ok) {
-                    throw new Error(`HTTP Error! Status: ${response.status}`);
-                }
+                if (!response.ok) throw new Error(`HTTP Error! Status: ${response.status}`);
                 
                 const data = await response.json();
-                
-                let gradeClass = '';
-                if (data.Grade.includes('RED')) {
-                    gradeClass = 'grade-red';
-                } else if (data.Grade.includes('YELLOW')) {
-                    gradeClass = 'grade-yellow';
-                } else {
-                    gradeClass = 'grade-green';
-                }
-                
-                let gradeHtml = `<span class="${gradeClass}">${data.Grade} (LRI: ${data.LRI})</span>`;
-                if (data.HardStop) {
-                    gradeHtml = `<span class="${gradeClass} hard-stop">🛑 ${data.Grade} (LRI: ${data.LRI})</span>`;
-                }
-
-                resultBox.innerHTML = `
-                    <h3>✅ 분석 결과 (${data.location})</h3>
-                    <p><strong>최종 등급:</strong> ${gradeHtml}</p>
-                    <p><strong>3대 위험 요소 점수:</strong> V: ${data.V_score} / N: ${data.N_score} / S: ${data.S_score}</p>
-                    
-                    <h4>📍 근거 (위성 데이터 융합)</h4>
-                    <ul>
-                        ${data.Evidence.map(e => `<li>${e}</li>`).join('')}
-                    </ul>
-                `;
+                displayResults(data);
 
             } catch (error) {
                 resultBox.innerHTML = `❌ API 호출 오류: ${error.message}. Python 서버가 실행 중인지 확인하세요.`;
             }
-        });
+        }
 
+        // 4. 결과 표시 함수
+        function displayResults(data) {
+            let gradeClass = '';
+            if (data.Grade.includes('RED')) gradeClass = 'grade-red';
+            else if (data.Grade.includes('YELLOW')) gradeClass = 'grade-yellow';
+            else gradeClass = 'grade-green';
+            
+            let gradeHtml = `<span class="${gradeClass}">${data.Grade} (LRI: ${data.LRI})</span>`;
+            if (data.HardStop) {
+                gradeHtml = `<span class="${gradeClass} hard-stop">🛑 ${data.Grade} (LRI: ${data.LRI})</span>`;
+            }
+
+            resultBox.innerHTML = `
+                <h3>✅ 분석 결과 (${data.location})</h3>
+                <p><strong>최종 등급:</strong> ${gradeHtml}</p>
+                <p><strong>3대 위험 요소 점수:</strong> V: ${data.V_score} / N: ${data.N_score} / S: ${data.S_score}</p>
+                <h4>📍 근거 데이터</h4>
+                <ul>
+                    ${data.Evidence.map(e => `<li>${e}</li>`).join('')}
+                </ul>
+            `;
+        }
+
+        // 5. 초기 맵 로드
         async function loadMap() {
-            const mapFrame = document.getElementById("leaflet-map");
             try {
                 const response = await fetch("http://127.0.0.1:8000/api/map");
-                if (!response.ok) {
-                    throw new Error(`Failed to load map: ${response.status}`);
-                }
+                if (!response.ok) throw new Error(`Failed to load map: ${response.status}`);
+                
                 const mapHtml = await response.text();
-                const blob = new Blob([mapHtml], { type: "text/html" });
-                mapFrame.src = URL.createObjectURL(blob);
+                mapFrame.srcdoc = mapHtml; // srcdoc을 사용해 HTML 직접 삽입
             } catch (error) {
                 console.error("Error loading map:", error);
-                mapFrame.innerHTML = "Failed to load map.";
+                resultBox.innerHTML = "맵 로딩 실패. 백엔드 서버를 확인하세요.";
             }
         }
 
-        // Load the map when the page loads
         loadMap();
     </script>
 </body>

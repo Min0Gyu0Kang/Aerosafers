@@ -192,15 +192,21 @@ async def get_map():
     """
     # Lazy import for faster startup
     import folium
-    import geopandas as gpd
+    from folium.elements import Element
 
-    # 1. 위성 타일 레이어 변경 (Esri World Imagery를 아리랑/천리안 대용으로 사용)
+    # 1. 위성 타일 레이어 변경
     m = folium.Map(
         location=[35.5, 128.0], 
         zoom_start=6, 
         tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
         attr="Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community"
     )
+
+    # Add BeautifyMarker plugin resources to the map header
+    m.get_root().header.add_child(folium.CssLink("https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css"))
+    m.get_root().header.add_child(folium.CssLink("https://cdn.jsdelivr.net/npm/leaflet-beautify-marker@1.0.9/dist/leaflet-beautify-marker.min.css"))
+    m.get_root().header.add_child(folium.JavascriptLink("https://cdn.jsdelivr.net/npm/leaflet-beautify-marker@1.0.9/dist/leaflet-beautify-marker.min.js"))
+
 
     # 2. 인천 FIR 경계선 GeoJSON 파일 로드 및 지도에 추가
     try:
@@ -214,6 +220,47 @@ async def get_map():
         # GeoJSON 파일이 없어도 맵은 로드되도록 예외 처리
         print(f"Could not load FIR GeoJSON: {e}")
 
+    # 3. 부모 창과 통신하기 위한 스크립트 추가
+    # - 지도 클릭 시 좌표를 부모 창으로 전송
+    # - 부모 창에서 받은 좌표로 마커(비행기 아이콘) 추가
+    script = """
+        <script>
+            // Increase the drag threshold to make clicks more reliable. Default is 5.
+            L.Draggable.DRAGGING_THRESHOLD = 15;
+
+            // Use L.BeautifyIcon to create a plane icon
+            var planeIcon = L.BeautifyIcon.icon({
+                icon: 'plane',
+                iconShape: 'circle',
+                borderColor: 'gray',
+                textColor: 'black',
+                backgroundColor: 'transparent'
+            });
+            var marker;
+
+            // 지도 클릭 시 부모 창으로 좌표 전송
+            this.on('click', function(e) {
+                parent.postMessage({
+                    type: 'MAP_CLICK',
+                    lat: e.latlng.lat,
+                    lon: e.latlng.lng
+                }, '*');
+            });
+
+            // 부모 창으로부터 메시지 수신 (마커 추가용)
+            window.addEventListener('message', function(event) {
+                const { type, lat, lon } = event.data;
+                if (type === 'ADD_MARKER') {
+                    if (marker) {
+                        this.removeLayer(marker);
+                    }
+                    marker = L.marker([lat, lon], {icon: planeIcon}).addTo(this);
+                    this.setView([lat, lon], 8); // 마커 위치로 뷰 이동
+                }
+            }.bind(this));
+        </script>
+    """
+    m.get_root().html.add_child(Element(script))
 
     # Render the map as HTML
     return m._repr_html_()
