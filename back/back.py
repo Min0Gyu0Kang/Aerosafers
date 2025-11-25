@@ -21,7 +21,7 @@ allowed_origins = os.environ.get("ALLOWED_ORIGINS", "http://127.0.0.1:3000,http:
 # Add your EC2 domain here for production
 # For example: "http://your-ec2-domain.com"
 # You can also use a wildcard for testing: ["*"]
-allowed_origins.append("http://52.78.12.152:3000")
+allowed_origins.append("http://52.78.12.152")
 
 
 # allow CORS for local frontend and production
