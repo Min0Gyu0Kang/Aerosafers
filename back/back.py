@@ -11,13 +11,23 @@ from fastapi.middleware.cors import CORSMiddleware
 import folium
 from fastapi.responses import HTMLResponse
 import geopandas as gpd
+import os
 
 app = FastAPI(title="LRI Engine Backend Prototype")
 
-# allow CORS for local frontend
+# Get allowed origins from environment variable, with a fallback for local dev
+allowed_origins = os.environ.get("ALLOWED_ORIGINS", "http://127.0.0.1:3000,http://localhost:3000").split(",")
+
+# Add your EC2 domain here for production
+# For example: "http://your-ec2-domain.com"
+# You can also use a wildcard for testing: ["*"]
+allowed_origins.append("http://52.78.12.152:3000")
+
+
+# allow CORS for local frontend and production
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://127.0.0.1:3000", "http://localhost:3000", "http://127.0.0.1:3000/"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

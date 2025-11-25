@@ -46,6 +46,11 @@
     </div>
 
     <script>
+        // --- CONFIGURATION ---
+        // Change this URL to your EC2 backend's public address
+        const API_BASE_URL = 'http://52.78.12.152:8000';
+        // -------------------
+
         const latInput = document.getElementById('lat-input');
         const lonInput = document.getElementById('lon-input');
         const submitButton = document.getElementById('submit-coords');
@@ -87,7 +92,7 @@
             resultBox.innerHTML = `⏳ ${lat.toFixed(4)}, ${lon.toFixed(4)} 좌표 분석 중...`;
 
             try {
-                const response = await fetch('http://127.0.0.1:8000/api/calculate_lri', {
+                const response = await fetch(`${API_BASE_URL}/api/calculate_lri`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ lat, lon }) // 'scenario' is no longer needed
@@ -129,7 +134,7 @@
         // 5. 초기 맵 로드
         async function loadMap() {
             try {
-                const response = await fetch("http://127.0.0.1:8000/api/map");
+                const response = await fetch(`${API_BASE_URL}/api/map`);
                 if (!response.ok) throw new Error(`Failed to load map: ${response.status}`);
                 
                 const mapHtml = await response.text();
