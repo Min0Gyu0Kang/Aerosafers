@@ -101,9 +101,9 @@ def calculate_lri(data: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-def _generate_data_from_coords(lat: float, lon: float) -> Dict[str, Any]:
+def _generate_data_from_coords(lat: float, lon: float, params: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Generates mock risk data based on latitude and longitude.
+    Generates mock risk data based on latitude, longitude, and aircraft parameters.
     This simulates fetching real-world data for a specific point.
     """
     # Use coordinates to seed the random number generator for deterministic results
@@ -139,6 +139,10 @@ def _generate_data_from_coords(lat: float, lon: float) -> Dict[str, Any]:
     else: # Plains in the west
         alpha_terrain = rng.uniform(0.01, 0.05)
         r_och_neg = rng.uniform(0.0, 0.01)
+
+    # Example of using the new params: rotary wings might be more sensitive to terrain
+    if params.get("wing_type") == "rotary":
+        alpha_terrain *= 1.2
 
     return {
         "actual_visibility": rng.uniform(25, 60),
@@ -228,26 +232,44 @@ def _generate_data_from_coords(lat: float, lon: float) -> Dict[str, Any]:
 @app.post("/api/calculate_lri")
 async def calculate_lri_endpoint(payload: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Accepts JSON: { "lat": <float>, "lon": <float> }
+    Accepts JSON: { "lat": <float>, "lon": <float>, "uam_type": <str>, "wing_type": <str> }
     Calculates LRI based on coordinate-dependent data.
     """
     lat = payload.get("lat")
     lon = payload.get("lon")
+    params = {
+        "uam_type": payload.get("uam_type", "eVTOL"),
+        "wing_type": payload.get("wing_type", "rotary")
+    }
 
     if lat is None or lon is None:
         raise HTTPException(status_code=400, detail="Latitude (lat) and Longitude (lon) are required.")
 
-    # Generate data based on coordinates instead of a fixed scenario
-    dynamic_data = _generate_data_from_coords(lat, lon)
+    # Generate data based on coordinates and new parameters
+    dynamic_data = _generate_data_from_coords(lat, lon, params)
 
     result = calculate_lri(dynamic_data)
 
     result['location'] = f"Lat: {lat:.4f}, Lon: {lon:.4f}"
-    result['Evidence'] = [
-        f"기상(W:{result['W_score']}): 구름 감쇠계수({dynamic_data['alpha_cloud']:.2f}) 적용.",
-        f"항법(N:{result['N_score']}): HPL={dynamic_data['HPL']:.1f}m, VPL={dynamic_data['VPL']:.1f}m.",
-        f"지형(T:{result['T_score']}): 지형 복잡도({dynamic_data['alpha_terrain']:.2f}) 및 장애물({dynamic_data['r_och_neg']:.2f}) 반영."
-    ]
+    result['Evidence'] = {
+        "KASS 정보 (Navigation N)": {
+            "HPL": f"{dynamic_data['HPL']:.1f}",
+            "VPL": f"{dynamic_data['VPL']:.1f}",
+            "N_score": f"{result['N_score']:.2f}"
+        },
+        "아리랑 정보 (Terrain T)": {
+            "alpha_terrain": f"{dynamic_data['alpha_terrain']:.2f}",
+            "r_och_neg": f"{dynamic_data['r_och_neg']:.2f}",
+            "T_score": f"{result['T_score']:.2f}"
+        },
+        "Cheollian 정보 (Weather W)": {
+            "alpha_cloud": f"{dynamic_data['alpha_cloud']:.2f}",
+            "actual_visibility": f"{dynamic_data['actual_visibility']:.1f}",
+            "required_visibility": f"{dynamic_data.get('required_visibility', 30)}",
+            "CTBT": f"{dynamic_data['CTBT']}",
+            "W_score": f"{result['W_score']:.2f}"
+        }
+    }
 
     return result
 
@@ -323,7 +345,8 @@ async def get_map(lat: float = None, lon: float = None, lri: float = None, grade
         location=initial_location,
         zoom_start=initial_zoom,
         tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-        attr="Esri World Imagery"
+        attr="Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community",
+        control_scale=True
     )
 
     # Add FIR boundary

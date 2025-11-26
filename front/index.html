@@ -26,20 +26,38 @@
 <body>
 
     <div id="left-panel">
-        <h2>LRI 분석 엔진</h2>
+        <h2>✈️ LRI 분석 엔진</h2>
         
-        <div>
-            <label for="lat-input">위도 (Latitude):</label>
-            <input type="text" id="lat-input" placeholder="예: 37.45">
+        <div id="input-section">
+            <h3>입력 파라미터</h3>
+            <label for="lat-input">위도</label>
+            <input type="text" id="lat-input" placeholder="예: 37.5665">
 
-            <label for="lon-input">경도 (Longitude):</label>
-            <input type="text" id="lon-input" placeholder="예: 126.78">
+            <label for="lon-input">경도</label>
+            <input type="text" id="lon-input" placeholder="예: 126.9780">
 
-            <button id="submit-coords">좌표로 분석</button>
+            <label for="uam-type">비행체 종류</label>
+            <select id="uam-type" style="width: 100%;">
+                <option value="CTOL">CTOL</option>
+                <option value="STOL">STOL</option>
+                <option value="VTOL">VTOL</option>
+                <option value="eVTOL" selected>eVTOL</option>
+                <option value="eCTOL">eCTOL</option>
+                <option value="eSTOL">eSTOL</option>
+            </select>
+
+            <label for="wing-type">비행 기체 구분</label>
+            <select id="wing-type" style="width: 100%;">
+                <option value="fixed">고정익</option>
+                <option value="rotary" selected>회전익</option>
+            </select>
+
+            <button id="submit-coords">분석 실행</button>
         </div>
 
         <div id="result-box">
-            맵을 클릭하거나 좌표를 입력하여 분석을 시작하세요.
+            <!-- 분석 결과가 여기에 표시됩니다. -->
+            <p>지도에서 위치를 클릭하거나 좌표를 입력 후 '분석 실행'을 누르세요.</p>
         </div>
     </div>
 
@@ -60,6 +78,8 @@
         const submitButton = document.getElementById('submit-coords');
         const resultBox = document.getElementById('result-box');
         const mapFrame = document.getElementById("map-area");
+        const uamTypeSelect = document.getElementById('uam-type');
+        const wingTypeSelect = document.getElementById('wing-type');
 
         let mapReady = false;
         let currentLat = null;
@@ -105,10 +125,18 @@
             resultBox.innerHTML = `⏳ ${lat.toFixed(4)}, ${lon.toFixed(4)} 좌표 분석 중...`;
 
             try {
+                const uamType = uamTypeSelect.value;
+                const wingType = wingTypeSelect.value;
+
                 const response = await fetch(`${API_BASE_URL}/api/calculate_lri`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ lat, lon })
+                    body: JSON.stringify({ 
+                        lat, 
+                        lon,
+                        uam_type: uamType,
+                        wing_type: wingType
+                    })
                 });
 
                 if (!response.ok) throw new Error(`HTTP Error! Status: ${response.status}`);
@@ -135,7 +163,7 @@
                 gradeClass = 'grade-yellow';
             } else if (gradeText.includes('WARNING')) {
                 gradeClass = 'grade-blue';
-            } else {
+            } else { // VERY GOOD
                 gradeClass = 'grade-green';
             }
             
@@ -144,15 +172,28 @@
                 gradeHtml = `<span class="grade-tag ${gradeClass} hard-stop">🛑 ${data.Grade} (LRI: ${data.LRI})</span>`;
             }
 
+            const evidence = data.Evidence;
+
             resultBox.innerHTML = `
                 <h3>✅ 분석 결과 (${data.location})</h3>
-                <p><strong>최종 등급:</strong> ${gradeHtml}</p>
-                <p><strong>3대 위험 요소 점수:</strong> W: ${data.W_score} / N: ${data.N_score} / T: ${data.T_score}</p>
-                <h4>📍 근거 데이터</h4>
-                <ul>
-                    ${data.Evidence.map(e => `<li>${e}</li>`).join('')}
-                </ul>
+                <p><strong>착륙 위험도 (LRI)</strong> <br>→ will become KASS</p>
+                <p>${gradeHtml}</p>
+                
+                <hr>
+
+                <p><strong>착륙 날씨 정보: 구름 이동(Weather)</strong> </p>
+                <p>W-Score: ${data.W_score}, 구름 감쇠: ${evidence.alpha_cloud}</p>
+
+                <p><strong>착륙 고각 HPL, 앙각 VPL (Navigation)</strong> </p>
+                <p>N-Score: ${data.N_score}, HPL: ${evidence.HPL}m, VPL: ${evidence.VPL}m</p>
+
+                <p><strong>착륙 지형정보 (Terrain)</strong> </p>
+                <p>T-Score: ${data.T_score}, 지형 복잡도: ${evidence.alpha_terrain}</p>
             `;
+
+            // 지도에 LRI 시각화 요청
+            const [latStr, lonStr] = data.location.replace(/Lat: |Lon: /g, '').split(', ');
+            // await sendLriToMap(latStr, lonStr, data.LRI);
         }
 
         // 5. 맵 로드/리로드 함수
