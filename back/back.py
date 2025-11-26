@@ -16,12 +16,17 @@ import os
 app = FastAPI(title="LRI Engine Backend Prototype")
 
 # Get allowed origins from environment variable, with a fallback for local dev
-allowed_origins = os.environ.get("ALLOWED_ORIGINS", "http://127.0.0.1:3000,http://localhost:8000").split(",")
+allowed_origins = os.environ.get(
+    "ALLOWED_ORIGINS",
+    "http://127.0.0.1:3000,http://localhost:8000,http://localhost:3000"
+).split(",")
 
-# Add your EC2 domain here for production
-# For example: "http://your-ec2-domain.com"
-# You can also use a wildcard for testing: ["*"]
-allowed_origins.append("http://15.164.94.228")
+# Add EC2 public IP (and other production origins) — update to your IP/domain
+allowed_origins.extend([
+    "http://15.164.94.228",
+    "http://52.78.12.152",
+    "https://52.78.12.152"
+])
 
 
 # allow CORS for local frontend and production
