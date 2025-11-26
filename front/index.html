@@ -67,10 +67,9 @@
 
     <script>
         // --- CONFIGURATION ---
-        // Change this URL to your EC2 backend's public address
-        const API_BASE_URL = 'http://15.164.94.228'; //uncomment when using ec2
-        // const API_BASE_URL = 'http://127.0.0.1:8000'; //uncomment when using locally
-
+        // Use the current page origin so calls go to the same origin (nginx will proxy /api/)
+        const API_BASE_URL = window.location.origin;
+        // For local-only testing you can override with: const API_BASE_URL = 'http://127.0.0.1:8000';
         // -------------------
 
         const latInput = document.getElementById('lat-input');
