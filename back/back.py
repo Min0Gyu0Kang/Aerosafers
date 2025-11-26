@@ -262,7 +262,7 @@ async def calculate_lri_endpoint(payload: Dict[str, Any]) -> Dict[str, Any]:
             "r_och_neg": f"{dynamic_data['r_och_neg']:.2f}",
             "T_score": f"{result['T_score']:.2f}"
         },
-        "Cheollian 정보 (Weather W)": {
+        "천리안 정보 (Weather W)": {
             "alpha_cloud": f"{dynamic_data['alpha_cloud']:.2f}",
             "actual_visibility": f"{dynamic_data['actual_visibility']:.1f}",
             "required_visibility": f"{dynamic_data.get('required_visibility', 30)}",
@@ -456,8 +456,50 @@ async def get_map(lat: float = None, lon: float = None, lri: float = None, grade
                 name='LRI Risk Map'
             ).add_to(m)
             print(f"[LRI DEBUG] Choropleth added with {len(features)} cells, LRI={lri}")
+
+            # If the result is not 'Very Good', try to find and mark a safer spot
+            if grade and "VERY GOOD" not in grade.upper():
+                print(f"[LRI DEBUG] Searching for a safer spot near ({lat}, {lon})")
+                best_spot = None
+                highest_lri = lri
+
+                # Search in a 3x3 grid around the original point
+                for i in range(-1, 2):
+                    for j in range(-1, 2):
+                        if i == 0 and j == 0:
+                            continue # Skip the original point
+                        
+                        search_lat = lat + i * 0.2 # Approx 22km offset
+                        search_lon = lon + j * 0.2 # Approx 22km offset
+                        
+                        # Simulate data and calculate LRI for the new spot
+                        search_params = {"uam_type": "eVTOL", "wing_type": "rotary"} # Use defaults for search
+                        search_data = _generate_data_from_coords(search_lat, search_lon, search_params)
+                        search_result = calculate_lri(search_data)
+
+                        # If this spot is better and not a hard stop, save it
+                        if not search_result["HardStop"] and search_result["LRI"] > highest_lri:
+                            highest_lri = search_result["LRI"]
+                            best_spot = {
+                                "lat": search_lat,
+                                "lon": search_lon,
+                                "lri": highest_lri
+                            }
+                
+                if best_spot:
+                    print(f"[LRI DEBUG] Safer spot found at ({best_spot['lat']:.2f}, {best_spot['lon']:.2f}) with LRI {best_spot['lri']:.2f}")
+                    folium.CircleMarker(
+                        location=[best_spot['lat'], best_spot['lon']],
+                        radius=8,
+                        color='darkgreen',
+                        fill=True,
+                        fill_color='darkgreen',
+                        fill_opacity=0.9,
+                        popup=f"Suggested Safer Location<br>LRI: {best_spot['lri']:.2f}"
+                    ).add_to(m)
+
         except Exception as e:
-            print(f"[LRI ERROR] Failed to add choropleth: {e}")
+            print(f"[LRI ERROR] Failed to add choropleth or safe spot: {e}")
 
         # Add legend using Folium's colormap
         try:

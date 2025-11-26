@@ -173,22 +173,25 @@
             }
 
             const evidence = data.Evidence;
+            const navEvidence = evidence["KASS 정보 (Navigation N)"];
+            const terrainEvidence = evidence["아리랑 정보 (Terrain T)"];
+            const weatherEvidence = evidence["Cheollian 정보 (Weather W)"];
 
             resultBox.innerHTML = `
                 <h3>✅ 분석 결과 (${data.location})</h3>
-                <p><strong>착륙 위험도 (LRI)</strong> <br>→ will become KASS</p>
+                <p><strong>착륙 위험도 (LRI)</strong> </p>
                 <p>${gradeHtml}</p>
                 
                 <hr>
+                <p><strong>분석 근거 (Evidence)</strong></p>
+                <p><strong>c천리안 날씨 정보: 구름 이동(Weather)</strong> </p>
+                <p>W-Score: ${data.W_score}, 구름 감쇠: ${weatherEvidence.alpha_cloud}</p>
 
-                <p><strong>착륙 날씨 정보: 구름 이동(Weather)</strong> </p>
-                <p>W-Score: ${data.W_score}, 구름 감쇠: ${evidence.alpha_cloud}</p>
+                <p><strong>KASS 정보: 착륙 고각 HPL, 앙각 VPL (Navigation)</strong> </p>
+                <p>N-Score: ${data.N_score}, HPL: ${navEvidence.HPL}m, VPL: ${navEvidence.VPL}m</p>
 
-                <p><strong>착륙 고각 HPL, 앙각 VPL (Navigation)</strong> </p>
-                <p>N-Score: ${data.N_score}, HPL: ${evidence.HPL}m, VPL: ${evidence.VPL}m</p>
-
-                <p><strong>착륙 지형정보 (Terrain)</strong> </p>
-                <p>T-Score: ${data.T_score}, 지형 복잡도: ${evidence.alpha_terrain}</p>
+                <p><strong>아리랑 정보: 착륙 지형 (Terrain)</strong> </p>
+                <p>T-Score: ${data.T_score}, 지형 복잡도: ${terrainEvidence.alpha_terrain}</p>
             `;
 
             // 지도에 LRI 시각화 요청
