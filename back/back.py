@@ -257,7 +257,7 @@ async def get_lri_grid(lat: float, lon: float, lri: float):
     Generates a GeoJSON grid around a central point to simulate a choropleth map.
     The LRI value decays from the center.
     """
-    grid_size = 11  # Grid dimensions (must be odd)
+    grid_size = 11  # Grid dismensions (must be odd)
     cell_size = 0.01  # Degrees per cell
     
     features = []
@@ -302,7 +302,7 @@ async def get_lri_grid(lat: float, lon: float, lri: float):
 
 
 @app.get("/api/map")
-async def get_map(lat: float = None, lon: float = None, lri: float = None):
+async def get_map(lat: float = None, lon: float = None, lri: float = None, grade: str = None):
     """
     Generates a Folium map with FIR boundary, optional marker, and optional choropleth.
     """
@@ -310,10 +310,18 @@ async def get_map(lat: float = None, lon: float = None, lri: float = None):
     from folium import plugins
     import branca.colormap as cm
 
-    # Create base map with a slightly closer initial zoom
+    # Determine initial map settings based on provided coordinates
+    if lat is not None and lon is not None:
+        initial_location = [lat, lon]
+        initial_zoom = 14  # Closer zoom when a point is specified
+    else:
+        initial_location = [35.5, 128.0]
+        initial_zoom = 7   # Default overview zoom
+
+    # Create base map with the correct initial settings
     m = folium.Map(
-        location=[35.5, 128.0],
-        zoom_start=7,
+        location=initial_location,
+        zoom_start=initial_zoom,
         tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
         attr="Esri World Imagery"
     )
@@ -351,9 +359,7 @@ async def get_map(lat: float = None, lon: float = None, lri: float = None):
                 popup=f"Selected Location<br>Lat: {lat:.4f}<br>Lon: {lon:.4f}"
             ).add_to(m)
             
-            # Center map on marker with a consistent, closer zoom
-            m.location = [lat, lon]
-            m.zoom_start = 11
+            # The location and zoom are now set during map initialization, so no need to change them here.
             print(f"[LRI DEBUG] Plane marker added at ({lat}, {lon})")
         except Exception as e:
             print(f"[LRI ERROR] Failed to add plane marker: {e}")
@@ -361,9 +367,9 @@ async def get_map(lat: float = None, lon: float = None, lri: float = None):
     # Add choropleth if LRI provided
     if lat is not None and lon is not None and lri is not None:
         try:
-            # Generate grid data with a larger cell size
-            grid_size = 11
-            cell_size = 10.  # Increased to make the grid larger
+            # Generate grid data
+            grid_size = 7 # choropleth grid size
+            cell_size = 0.01  # change to make center cell size  
             center_offset = (grid_size - 1) / 2
             
             features = []
@@ -396,16 +402,24 @@ async def get_map(lat: float = None, lon: float = None, lri: float = None):
             
             geojson_data = {"type": "FeatureCollection", "features": features}
             
-            # Define color function
+            # Define color function to match the 4-level grading system
             def style_function(feature):
                 lri_val = feature['properties']['lri']
-                if lri_val < 60:
-                    color = '#ff6961'  # Pastel Red
-                elif lri_val < 80:
-                    color = '#fdfd96'  # Pastel Yellow
-                else:
-                    color = '#77dd77'  # Pastel Green
                 
+                # Determine color based on the LRI of the specific grid cell
+                if lri_val < TAU_RED: # < 60
+                    color = '#fdfd96'  # Pastel Yellow for Severe
+                elif lri_val < TAU_YELLOW: # < 80
+                    color = '#aec6cf'  # Pastel Blue for Warning
+                else: # >= 80
+                    color = '#77dd77'  # Pastel Green for Very Good
+
+                # Override color for the center cell if it's a Hard Stop case
+                # The center cell has the highest LRI, equal to the initial 'lri'
+                is_center_cell = abs(lri_val - lri) < 0.01
+                if is_center_cell and grade and "HARD STOP" in grade.upper():
+                    color = '#ff6961' # Pastel Red for Hard Stop
+
                 return {
                     'fillColor': color,
                     'color': 'white',

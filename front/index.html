@@ -114,11 +114,10 @@
                 if (!response.ok) throw new Error(`HTTP Error! Status: ${response.status}`);
                 
                 const data = await response.json();
-                currentLri = data.LRI;
                 await displayResults(data);
                 
-                // Reload map with marker and choropleth
-                await loadMap(lat, lon, data.LRI);
+                // Reload map with marker, choropleth, and the final grade
+                await loadMap(lat, lon, data.LRI, data.Grade);
 
             } catch (error) {
                 resultBox.innerHTML = `❌ API 호출 오류: ${error.message}. Python 서버가 실행 중인지 확인하세요.`;
@@ -157,17 +156,19 @@
         }
 
         // 5. 맵 로드/리로드 함수
-        async function loadMap(lat = null, lon = null, lri = null) {
+        async function loadMap(lat = null, lon = null, lri = null, grade = null) {
             try {
                 let url = `${API_BASE_URL}/api/map`;
-                const params = [];
+                const params = new URLSearchParams();
                 
-                if (lat !== null) params.push(`lat=${lat}`);
-                if (lon !== null) params.push(`lon=${lon}`);
-                if (lri !== null) params.push(`lri=${lri}`);
+                if (lat !== null) params.append('lat', lat);
+                if (lon !== null) params.append('lon', lon);
+                if (lri !== null) params.append('lri', lri);
+                if (grade !== null) params.append('grade', grade);
                 
-                if (params.length > 0) {
-                    url += '?' + params.join('&');
+                const queryString = params.toString();
+                if (queryString) {
+                    url += '?' + queryString;
                 }
                 
                 const response = await fetch(url);
