@@ -4,7 +4,7 @@
     "description": "Frontend + FastAPI backend scaffold for LRI prototype",
     "scripts": {
         "frontend": "http-server ./front -p 3000 -a 0.0.0.0 -c-1 -o",
-        "backend": "bash -lc \"source .venv/bin/activate && python -m uvicorn back.back:app --host 0.0.0.0 --port 8000 --timeout-keep-alive 5\"",
+        "backend": "bash -lc \"source .venv/bin/activate && python -m uvicorn back.back:app --reload --host 0.0.0.0 --port 8000 --timeout-keep-alive 5\"",
         "dev": "concurrently --kill-others-on-fail \"npm:backend\" \"npm:frontend\"",
         "start": "npm run frontend",
         "build": "npm run build:frontend && npm run build:backend",

@@ -437,232 +437,175 @@ async def get_map(lat: float = None, lon: float = None, lri: float = None, grade
             ).add_to(m)
             print(f"[LRI DEBUG] Choropleth added with {len(features)} cells, LRI={lri}")
 
-            # If the result is not 'Very Good', try to find and mark a safer spot
-            if grade and "VERY GOOD" not in grade.upper():
-                print(f"[LRI DEBUG] Searching for a safer spot near ({lat}, {lon})")
-                best_spot = None
-                highest_lri = lri
+            # Recompute center LRI/Grade on backend to avoid trusting client-supplied values
+            try:
+                center_params = {"uam_type": "eVTOL", "wing_type": "rotary"}
+                center_data = _generate_data_from_coords(lat, lon, center_params)
+                center_result = calculate_lri(center_data)
+                center_lri = center_result.get("LRI", lri)
+                center_grade = center_result.get("Grade", (grade or "").upper())
+                print(f"[LRI DEBUG] Center recomputed LRI={center_lri}, Grade={center_grade}")
+            except Exception as ex:
+                # if recompute fails, fall back to provided values but warn
+                print(f"[LRI WARN] Failed to recompute center LRI: {ex}")
+                center_lri = lri
+                center_grade = (grade or "").upper()
 
-                # Search in a 3x3 grid around the original point
-                for i in range(-1, 2):
-                    for j in range(-1, 2):
-                        if i == 0 and j == 0:
-                            continue # Skip the original point
-                        
-                        search_lat = lat + i * 0.2 # Approx 22km offset
-                        search_lon = lon + j * 0.2 # Approx 22km offset
-                        
-                        # Simulate data and calculate LRI for the new spot
-                        search_params = {"uam_type": "eVTOL", "wing_type": "rotary"} # Use defaults for search
-                        search_data = _generate_data_from_coords(search_lat, search_lon, search_params)
-                        search_result = calculate_lri(search_data)
+            # Only search for a safer spot when the center is not Very Good
+            try:
+                if center_grade and "VERY GOOD" not in center_grade.upper():
+                    print(f"[LRI DEBUG] Searching for a safer spot near ({lat}, {lon}) based on recomputed center grade {center_grade}")
 
-                        # If this spot is better and not a hard stop, save it
-                        if not search_result["HardStop"] and search_result["LRI"] > highest_lri:
-                            highest_lri = search_result["LRI"]
-                            best_spot = {
-                                "lat": search_lat,
-                                "lon": search_lon,
-                                "lri": highest_lri
-                            }
-                
-                if best_spot:
-                    print(f"[LRI DEBUG] Safer spot found at ({best_spot['lat']:.2f}, {best_spot['lon']:.2f}) with LRI {best_spot['lri']:.2f}")
-                    folium.CircleMarker(
-                        location=[best_spot['lat'], best_spot['lon']],
-                        radius=8,
-                        color='darkgreen',
-                        fill=True,
-                        fill_color='darkgreen',
-                        fill_opacity=0.9,
-                        popup=f"Suggested Safer Location<br>LRI: {best_spot['lri']:.2f}"
-                    ).add_to(m)
+                    # STEP 0: selection operates on the generated geojson 'features'
+                    very_good_cells = []
+                    warning_cells = []
 
+                    try:
+                        for feat in features:
+                            cell_lri = feat['properties'].get('lri', 0)
+                            # skip exact center cell
+                            is_center = abs(cell_lri - lri) < 0.0001
+                            if is_center:
+                                continue
+
+                            # compute cell center from polygon coords: [ [ [lon,lat], ... ] ]
+                            try:
+                                poly = feat['geometry']['coordinates'][0]
+                                lons = [p[0] for p in poly[:-1]]
+                                lats = [p[1] for p in poly[:-1]]
+                                cell_center_lon = sum(lons) / len(lons)
+                                cell_center_lat = sum(lats) / len(lats)
+                            except Exception as exc:
+                                print(f"[LRI WARN] Failed to compute cell center: {exc}")
+                                continue
+
+                            if cell_lri >= TAU_YELLOW:  # >= 80 -> Very Good
+                                very_good_cells.append((cell_center_lat, cell_center_lon, cell_lri))
+                            elif cell_lri < TAU_YELLOW:  # < 80 -> Warning/Severe
+                                warning_cells.append((cell_center_lat, cell_center_lon, cell_lri))
+                    except Exception as ex_features:
+                        print(f"[LRI WARN] Error iterating features for safer-spot selection: {ex_features}")
+
+                    # STEP 1: choose a candidate (prefer very_good_cells)
+                    best_spot = None
+                    try:
+                        import random as _random
+                        if very_good_cells:
+                            best_spot = _random.choice(very_good_cells)
+                        elif warning_cells:
+                            best_spot = _random.choice(warning_cells)
+                        # normalize to dict if found
+                        if best_spot:
+                            best_spot = {"lat": best_spot[0], "lon": best_spot[1], "lri": best_spot[2]}
+                            print(f"[LRI DEBUG] Candidate safer spot chosen at ({best_spot['lat']:.5f}, {best_spot['lon']:.5f}) with LRI {best_spot['lri']:.2f}")
+                        else:
+                            print("[LRI DEBUG] No candidate safer cells found in grid.")
+                    except Exception as ex_choice:
+                        print(f"[LRI WARN] Failed to pick safer spot: {ex_choice}")
+                        best_spot = None
+
+                    # STEP 2 / 3: create polyline arrow and NOTAM modal if best_spot exists
+                    if best_spot:
+                        alt_dot_created = False
+                        arrow_created = False
+                        notam_created = False
+
+                        try:
+                            # emphasize alternative dot (darker green for very good, darker blue for warning)
+                            if best_spot['lri'] >= TAU_YELLOW:
+                                alt_dot_color = '#2e8b57'  # darker green
+                            else:
+                                alt_dot_color = '#4b7380'  # darker blue
+
+                            folium.CircleMarker(
+                                location=[best_spot['lat'], best_spot['lon']],
+                                radius=6,
+                                color=alt_dot_color,
+                                fill=True,
+                                fill_color=alt_dot_color,
+                                fill_opacity=0.95,
+                                tooltip=f"Alternative: LRI {best_spot['lri']:.2f}"
+                            ).add_to(m)
+                            alt_dot_created = True
+                            print(f"[LRI DEBUG] Alt dot created with color {alt_dot_color}")
+                        except Exception as ex_dot:
+                            print(f"[LRI WARN] Alt dot creation failed: {ex_dot}")
+
+                        try:
+                            line_color = alt_dot_color if 'alt_dot_color' in locals() and alt_dot_color else '#4b7380'
+                            line = folium.PolyLine(
+                                locations=[[lat, lon], [best_spot['lat'], best_spot['lon']]],
+                                color=line_color,
+                                weight=3,
+                                opacity=0.9
+                            ).add_to(m)
+                            arrow_created = True
+                            print("[LRI DEBUG] Direction line drawn")
+
+                            # try adding an arrow glyph (best-effort)
+                            try:
+                                from folium.plugins import PolyLineTextPath
+                                PolyLineTextPath(line, ' ▶ ', repeat=False, offset=7,
+                                                 attributes={'fill': line_color, 'font-weight': 'bold', 'font-size': '18'}).add_to(m)
+                                print("[LRI DEBUG] Arrow glyph added along line")
+                            except Exception as ex_glyph:
+                                print(f"[LRI WARN] Arrow glyph not available: {ex_glyph}")
+                        except Exception as ex_line:
+                            print(f"[LRI WARN] Failed to draw direction line: {ex_line}")
+
+                        try:
+                            mid_lat = (lat + best_spot['lat']) / 2.0
+                            mid_lon = (lon + best_spot['lon']) / 2.0
+                            notam_html = (
+                                '<div style="'
+                                'background: rgba(255,255,255,0.95);'
+                                'border: 2px solid #ff6961;'
+                                'color: #000;'
+                                'padding: 8px 12px;'
+                                'border-radius: 6px;'
+                                'font-weight: 700;'
+                                'box-shadow: 0 3px 8px rgba(0,0,0,0.25);'
+                                'max-width: 260px; text-align: center;">'
+                                'NOTAM: 해당 장소는 착륙하기 매우 어려울 것으로 예상됩니다!<br>우회 착륙지를 권장드립니다.'
+                                '</div>'
+                            )
+                            folium.map.Marker(
+                                [mid_lat, mid_lon],
+                                icon=folium.DivIcon(html=notam_html, icon_size=(250,60), class_name='notam-divicon')
+                            ).add_to(m)
+                            notam_created = True
+                            print("[LRI DEBUG] NOTAM DivIcon added")
+                        except Exception as ex_notam:
+                            print(f"[LRI WARN] Failed to add NOTAM DivIcon: {ex_notam}")
+
+                        # final logs
+                        if not alt_dot_created:
+                            print("[LRI WARN] Alternative dot was NOT created; check earlier errors.")
+                        if not arrow_created:
+                            print("[LRI WARN] Direction arrow was NOT created; check earlier errors.")
+                        if not notam_created:
+                            print("[LRI WARN] NOTAM modal/popup was NOT created; check earlier errors.")
+                    else:
+                        print("[LRI DEBUG] No safer spot available after grid evaluation.")
+                else:
+                    print(f"[LRI DEBUG] Center grade is VERY GOOD ({center_grade}) — skipping safer-spot selection.")
+            except Exception as e:
+                print(f"[LRI ERROR] Failed during safer-spot selection: {e}")
+
+            # End of map-generation try-block: ensure any uncaught exceptions are handled and a response is returned
         except Exception as e:
-            print(f"[LRI ERROR] Failed to add choropleth or safe spot: {e}")
+            print(f"[LRI ERROR] Unhandled error in get_map: {e}")
+            try:
+                return HTMLResponse(content=f"<html><body><h3>Map generation failed: {e}</h3></body></html>")
+            except Exception:
+                return HTMLResponse(content="<html><body><h3>Map generation failed.</h3></body></html>")
 
-        # Add legend using Folium's colormap
-        try:
-            from branca.element import Template, MacroElement
-            
-            legend_template = '''
-            {% macro html(this, kwargs) %}
-            <div style="
-                position: fixed; 
-                bottom: 50px; 
-                right: 50px; 
-                width: 200px; 
-                background-color: white; 
-                border: 2px solid grey; 
-                z-index: 9999; 
-                font-size: 14px;
-                padding: 15px;
-                border-radius: 5px;
-                box-shadow: 0 0 10px rgba(0,0,0,0.2);
-            ">
-                <p style="margin: 0 0 10px 0; font-weight: bold; font-size: 16px; text-align: center;">LRI Risk Scale</p>
-                <div style="margin: 8px 0; display: flex; align-items: center;">
-                    <span style="background-color: #77dd77; width: 30px; height: 20px; display: inline-block; border-radius: 3px; margin-right: 10px;"></span>
-                    <span style="flex: 1;">Very Good</span>
-                </div>
-                <div style="margin: 8px 0; display: flex; align-items: center;">
-                    <span style="background-color: #aec6cf; width: 30px; height: 20px; display: inline-block; border-radius: 3px; margin-right: 10px;"></span>
-                    <span style="flex: 1;">Warning</span>
-                </div>
-                <div style="margin: 8px 0; display: flex; align-items: center;">
-                    <span style="background-color: #fdfd96; width: 30px; height: 20px; display: inline-block; border-radius: 3px; margin-right: 10px;"></span>
-                    <span style="flex: 1;">Severe</span>
-                </div>
-                <div style="margin: 8px 0; display: flex; align-items: center;">
-                    <span style="background-color: #ff6961; width: 30px; height: 20px; display: inline-block; border-radius: 3px; margin-right: 10px;"></span>
-                    <span style="flex: 1;">Hard Stop</span>
-                </div>
-            </div>
-            {% endmacro %}
-            '''
-            
-            legend_macro = MacroElement()
-            legend_macro._template = Template(legend_template)
-            m.get_root().add_child(legend_macro)
-            print("[LRI DEBUG] Legend added successfully")
-        except Exception as e:
-            print(f"[LRI ERROR] Failed to add legend: {e}")
-
-    # Add click handler, marker management, and pin mode button via JavaScript
-    try:
-        # Pass initial coordinates to the script if they exist
-        initial_lat_str = str(lat) if lat is not None else "null"
-        initial_lon_str = str(lon) if lon is not None else "null"
-
-        click_script = f'''
-        <script>
-        var map = null;
-        
-        function findMap() {{
-            var keys = Object.keys(window).filter(k => window[k] && window[k]._leaflet_id);
-            return keys.length > 0 ? window[keys[0]] : null;
-        }}
-        
-        function setupMapInteractions() {{
-            map = findMap();
-            if (map) {{
-                var planeMarker = null;
-                var isPinModeActive = false;
-
-                // --- Custom Plane Icon ---
-                var planeIcon = L.divIcon({{
-                    html: `<div style="
-                        background-color: rgba(255, 255, 255, 0.8);
-                        border-radius: 50%;
-                        width: 32px;
-                        height: 32px;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        box-shadow: 0 2px 5px rgba(0,0,0,0.5);
-                        border: 1px solid #aaa;
-                    ">
-                        <div style="font-size: 20px; transform: rotate(45deg); color: #333;">✈</div>
-                    </div>`,
-                    className: 'plane-marker-icon',
-                    iconSize: [32, 32],
-                    iconAnchor: [16, 16]
-                }});
-
-                // --- Function to Add or Move Marker ---
-                function placeMarker(latlng) {{
-                    if (planeMarker) {{
-                        planeMarker.setLatLng(latlng);
-                    }} else {{
-                        planeMarker = L.marker(latlng, {{
-                            icon: planeIcon
-                        }}).addTo(map);
-                    }}
-                }}
-
-                // --- Place Initial Marker if Coords were provided ---
-                var initialLat = {initial_lat_str};
-                var initialLon = {initial_lon_str};
-                if (initialLat !== null && initialLon !== null) {{
-                    placeMarker([initialLat, initialLon]);
-                }}
-
-                // --- Custom Pin Mode Control ---
-                var PinControl = L.Control.extend({{
-                    onAdd: function(map) {{
-                        var container = L.DomUtil.create('div', 'leaflet-bar leaflet-control');
-                        var button = L.DomUtil.create('a', 'leaflet-control-button', container);
-                        button.innerHTML = '📌';
-                        button.href = '#';
-                        button.role = 'button';
-                        button.title = 'Toggle Pin Mode';
-                        
-                        L.DomEvent.on(button, 'click', L.DomEvent.stop).on(button, 'click', function() {{
-                            isPinModeActive = !isPinModeActive;
-                            if (isPinModeActive) {{
-                                L.DomUtil.addClass(button, 'active');
-                                map.dragging.disable();
-                                map.getContainer().style.cursor = 'crosshair';
-                            }} else {{
-                                L.DomUtil.removeClass(button, 'active');
-                                map.dragging.enable();
-                                map.getContainer().style.cursor = '';
-                            }}
-                        }});
-                        
-                        return container;
-                    }}
-                }});
-                map.addControl(new PinControl({{ position: 'topleft' }}));
-
-                // --- Map Click Handler ---
-                map.on('click', function(e) {{
-                    // Place marker instantly on the client side
-                    placeMarker(e.latlng);
-                    
-                    // Send coordinates to parent to update input boxes
-                    parent.postMessage({{
-                        type: 'MAP_CLICK',
-                        lat: e.latlng.lat,
-                        lon: e.latlng.lng
-                    }}, '*');
-                }});
-
-                // --- Notify Parent that Map is Ready ---
-                parent.postMessage({{ type: 'MAP_READY' }}, '*');
-
-            }} else {{
-                setTimeout(setupMapInteractions, 100);
-            }}
-        }}
-        
-        // --- Custom CSS for the button ---
-        var style = document.createElement('style');
-        style.innerHTML = `
-            .leaflet-control-button {{ font-size: 1.4em; line-height: 28px; text-align: center; width: 30px; height: 30px; background-color: #fff; border-radius: 4px; }}
-            .leaflet-control-button.active {{ background-color: #d4edff; }}
-        `;
-        document.head.appendChild(style);
-
-        // --- Initializer ---
-        if (document.readyState === 'complete') {{
-            setupMapInteractions();
-        }} else {{
-            window.addEventListener('load', setupMapInteractions);
-        }}
-        </script>
-        '''
-        m.get_root().html.add_child(folium.Element(click_script))
-        print("[LRI DEBUG] Client-side marker and pin mode script added successfully")
-    except Exception as e:
-        print(f"[LRI ERROR] Failed to add custom map script: {e}")
-
+    # If lat/lon/lri not provided, or after successful map generation, return the map HTML
     try:
         return HTMLResponse(content=m._repr_html_())
     except Exception as e:
-        print(f"[LRI ERROR] Failed to generate HTML response: {e}")
-        raise HTTPException(status_code=500, detail=f"Map generation failed: {str(e)}")
-
+        print(f"[LRI ERROR] Failed to render map HTML: {e}")
+        return HTMLResponse(content="<html><body><h3>Map rendering failed.</h3></body></html>")
 # Signal handler for graceful shutdown
 def signal_handler(sig, frame):
     print("\nShutting down backend server gracefully...")
