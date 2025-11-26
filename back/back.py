@@ -365,27 +365,7 @@ async def get_map(lat: float = None, lon: float = None, lri: float = None, grade
     except Exception as e:
         print(f"[LRI DEBUG] FIR load failed: {e}")
 
-    # Add plane marker if coordinates provided
-    if lat is not None and lon is not None:
-        try:
-            # Create plane icon using BeautifyIcon plugin
-            icon_plane = folium.plugins.BeautifyIcon(
-                icon="plane",
-                border_color="#666666",
-                text_color="#666666",
-                icon_shape="triangle"
-            )
-            
-            folium.Marker(
-                location=[lat, lon],
-                icon=icon_plane,
-                popup=f"Selected Location<br>Lat: {lat:.4f}<br>Lon: {lon:.4f}"
-            ).add_to(m)
-            
-            # The location and zoom are now set during map initialization, so no need to change them here.
-            print(f"[LRI DEBUG] Plane marker added at ({lat}, {lon})")
-        except Exception as e:
-            print(f"[LRI ERROR] Failed to add plane marker: {e}")
+    # Server-side marker is removed. All marker logic is now handled by the client-side script below.
 
     # Add choropleth if LRI provided
     if lat is not None and lon is not None and lri is not None:
@@ -548,94 +528,132 @@ async def get_map(lat: float = None, lon: float = None, lri: float = None, grade
         except Exception as e:
             print(f"[LRI ERROR] Failed to add legend: {e}")
 
-    # Add click handler and custom pin mode button via JavaScript
+    # Add click handler, marker management, and pin mode button via JavaScript
     try:
-        click_script = '''
+        # Pass initial coordinates to the script if they exist
+        initial_lat_str = str(lat) if lat is not None else "null"
+        initial_lon_str = str(lon) if lon is not None else "null"
+
+        click_script = f'''
         <script>
         var map = null;
         
-        function findMap() {
+        function findMap() {{
             var keys = Object.keys(window).filter(k => window[k] && window[k]._leaflet_id);
             return keys.length > 0 ? window[keys[0]] : null;
-        }
+        }}
         
-        function setupMapInteractions() {
+        function setupMapInteractions() {{
             map = findMap();
-            if (map) {
-                // --- Custom Pin Mode Control ---
+            if (map) {{
+                var planeMarker = null;
                 var isPinModeActive = false;
-                var PinControl = L.Control.extend({
-                    onAdd: function(map) {
+
+                // --- Custom Plane Icon ---
+                var planeIcon = L.divIcon({{
+                    html: `<div style="
+                        background-color: rgba(255, 255, 255, 0.8);
+                        border-radius: 50%;
+                        width: 32px;
+                        height: 32px;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+                        border: 1px solid #aaa;
+                    ">
+                        <div style="font-size: 20px; transform: rotate(45deg); color: #333;">✈</div>
+                    </div>`,
+                    className: 'plane-marker-icon',
+                    iconSize: [32, 32],
+                    iconAnchor: [16, 16]
+                }});
+
+                // --- Function to Add or Move Marker ---
+                function placeMarker(latlng) {{
+                    if (planeMarker) {{
+                        planeMarker.setLatLng(latlng);
+                    }} else {{
+                        planeMarker = L.marker(latlng, {{
+                            icon: planeIcon
+                        }}).addTo(map);
+                    }}
+                }}
+
+                // --- Place Initial Marker if Coords were provided ---
+                var initialLat = {initial_lat_str};
+                var initialLon = {initial_lon_str};
+                if (initialLat !== null && initialLon !== null) {{
+                    placeMarker([initialLat, initialLon]);
+                }}
+
+                // --- Custom Pin Mode Control ---
+                var PinControl = L.Control.extend({{
+                    onAdd: function(map) {{
                         var container = L.DomUtil.create('div', 'leaflet-bar leaflet-control');
                         var button = L.DomUtil.create('a', 'leaflet-control-button', container);
-                        button.innerHTML = '📌'; // Pin emoji
+                        button.innerHTML = '📌';
                         button.href = '#';
                         button.role = 'button';
                         button.title = 'Toggle Pin Mode';
                         
-                        L.DomEvent.on(button, 'click', L.DomEvent.stop).on(button, 'click', function() {
+                        L.DomEvent.on(button, 'click', L.DomEvent.stop).on(button, 'click', function() {{
                             isPinModeActive = !isPinModeActive;
-                            if (isPinModeActive) {
+                            if (isPinModeActive) {{
                                 L.DomUtil.addClass(button, 'active');
                                 map.dragging.disable();
                                 map.getContainer().style.cursor = 'crosshair';
-                            } else {
+                            }} else {{
                                 L.DomUtil.removeClass(button, 'active');
                                 map.dragging.enable();
                                 map.getContainer().style.cursor = '';
-                            }
-                        });
+                            }}
+                        }});
                         
                         return container;
-                    }
-                });
-                map.addControl(new PinControl({ position: 'topleft' }));
+                    }}
+                }});
+                map.addControl(new PinControl({{ position: 'topleft' }}));
 
                 // --- Map Click Handler ---
-                map.on('click', function(e) {
-                    // Always send click coordinates to parent for analysis
-                    parent.postMessage({
+                map.on('click', function(e) {{
+                    // Place marker instantly on the client side
+                    placeMarker(e.latlng);
+                    
+                    // Send coordinates to parent to update input boxes
+                    parent.postMessage({{
                         type: 'MAP_CLICK',
                         lat: e.latlng.lat,
                         lon: e.latlng.lng
-                    }, '*');
-                });
+                    }}, '*');
+                }});
 
                 // --- Notify Parent that Map is Ready ---
-                parent.postMessage({ type: 'MAP_READY' }, '*');
-            } else {
+                parent.postMessage({{ type: 'MAP_READY' }}, '*');
+
+            }} else {{
                 setTimeout(setupMapInteractions, 100);
-            }
-        }
+            }}
+        }}
         
         // --- Custom CSS for the button ---
         var style = document.createElement('style');
         style.innerHTML = `
-            .leaflet-control-button {
-                font-size: 1.4em;
-                line-height: 28px;
-                text-align: center;
-                width: 30px;
-                height: 30px;
-                background-color: #fff;
-                border-radius: 4px;
-            }
-            .leaflet-control-button.active {
-                background-color: #d4edff;
-            }
+            .leaflet-control-button {{ font-size: 1.4em; line-height: 28px; text-align: center; width: 30px; height: 30px; background-color: #fff; border-radius: 4px; }}
+            .leaflet-control-button.active {{ background-color: #d4edff; }}
         `;
         document.head.appendChild(style);
 
         // --- Initializer ---
-        if (document.readyState === 'complete') {
+        if (document.readyState === 'complete') {{
             setupMapInteractions();
-        } else {
+        }} else {{
             window.addEventListener('load', setupMapInteractions);
-        }
+        }}
         </script>
         '''
         m.get_root().html.add_child(folium.Element(click_script))
-        print("[LRI DEBUG] Click handler and Pin Mode script added successfully")
+        print("[LRI DEBUG] Client-side marker and pin mode script added successfully")
     except Exception as e:
         print(f"[LRI ERROR] Failed to add custom map script: {e}")
 

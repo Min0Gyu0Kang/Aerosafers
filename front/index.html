@@ -100,26 +100,26 @@
             }
         });
 
-        // 2. 지도 클릭 시 좌표 받아오기
-        window.addEventListener('message', event => {
-            if (!event.data || !event.data.type) return;
+        // 2. 마커 표시: 지도 iframe에서 메시지를 수신하여 좌표를 업데이트
+        window.addEventListener('message', (event) => {
+            if (!event.data || !event.data.type) {
+                return;
+            }
 
             const { type, lat, lon } = event.data;
-            
+
             if (type === 'MAP_READY') {
                 mapReady = true;
-                console.log('Map is ready');
+                console.log('[Parent] Map is ready.');
             }
-            
+
             if (type === 'MAP_CLICK') {
+                console.log('[Parent] Received map click. Updating coordinates.');
                 latInput.value = lat.toFixed(6);
                 lonInput.value = lon.toFixed(6);
-                currentLat = lat;
-                currentLon = lon;
-                requestLriAnalysis(lat, lon);
             }
         });
-
+        
         // 3. LRI 분석 API 호출 함수
         async function requestLriAnalysis(lat, lon) {
             resultBox.innerHTML = `⏳ ${lat.toFixed(4)}, ${lon.toFixed(4)} 좌표 분석 중...`;
@@ -145,6 +145,7 @@
                 await displayResults(data);
                 
                 // Reload map with marker, choropleth, and the final grade
+                console.log('[Parent] Analysis complete. Reloading map to add marker and choropleth.');
                 await loadMap(lat, lon, data.LRI, data.Grade);
 
             } catch (error) {
@@ -172,10 +173,26 @@
                 gradeHtml = `<span class="grade-tag ${gradeClass} hard-stop">🛑 ${data.Grade} (LRI: ${data.LRI})</span>`;
             }
 
-            const evidence = data.Evidence;
-            const navEvidence = evidence["KASS 정보 (Navigation N)"];
-            const terrainEvidence = evidence["아리랑 정보 (Terrain T)"];
-            const weatherEvidence = evidence["Cheollian 정보 (Weather W)"];
+            const evidence = data.Evidence || {};
+            const evidenceKeys = Object.keys(evidence);
+
+            function findEvidence(variants) {
+                for (const v of variants) {
+                    const key = evidenceKeys.find(k => k && k.toLowerCase().includes(v.toLowerCase()));
+                    if (key) return evidence[key];
+                }
+                return {};
+            }
+
+            const weatherEvidence = findEvidence(['weather', '천리', 'cheollian', '천리안']);
+            const navEvidence = findEvidence(['navigation', 'kass', 'nav', '착륙 고각', 'KASS']);
+            const terrainEvidence = findEvidence(['terrain', '아리랑', 'dem', '지형']);
+
+            const alpha_cloud = (weatherEvidence && weatherEvidence.alpha_cloud) ? weatherEvidence.alpha_cloud : 'N/A';
+            const actual_visibility = (weatherEvidence && weatherEvidence.actual_visibility) ? weatherEvidence.actual_visibility : 'N/A';
+            const hpl = (navEvidence && navEvidence.HPL) ? navEvidence.HPL : 'N/A';
+            const vpl = (navEvidence && navEvidence.VPL) ? navEvidence.VPL : 'N/A';
+            const alpha_terrain = (terrainEvidence && terrainEvidence.alpha_terrain) ? terrainEvidence.alpha_terrain : 'N/A';
 
             resultBox.innerHTML = `
                 <h3>✅ 분석 결과 (${data.location})</h3>
@@ -184,14 +201,14 @@
                 
                 <hr>
                 <p><strong>분석 근거 (Evidence)</strong></p>
-                <p><strong>c천리안 날씨 정보: 구름 이동(Weather)</strong> </p>
-                <p>W-Score: ${data.W_score}, 구름 감쇠: ${weatherEvidence.alpha_cloud}</p>
+                <p><strong>천리안 날씨 정보: 구름 이동 (Weather)</strong></p>
+                <p>W-Score: ${data.W_score ?? 'N/A'}, 구름 감쇠: ${alpha_cloud}, 시정: ${actual_visibility}</p>
 
-                <p><strong>KASS 정보: 착륙 고각 HPL, 앙각 VPL (Navigation)</strong> </p>
-                <p>N-Score: ${data.N_score}, HPL: ${navEvidence.HPL}m, VPL: ${navEvidence.VPL}m</p>
+                <p><strong>KASS 정보: 착륙 고각 HPL, 앙각 VPL (Navigation)</strong></p>
+                <p>N-Score: ${data.N_score ?? 'N/A'}, HPL: ${hpl}m, VPL: ${vpl}m</p>
 
-                <p><strong>아리랑 정보: 착륙 지형 (Terrain)</strong> </p>
-                <p>T-Score: ${data.T_score}, 지형 복잡도: ${terrainEvidence.alpha_terrain}</p>
+                <p><strong>아리랑 정보: 착륙 지형 (Terrain)</strong></p>
+                <p>T-Score: ${data.T_score ?? 'N/A'}, 지형 복잡도: ${alpha_terrain}</p>
             `;
 
             // 지도에 LRI 시각화 요청
@@ -201,6 +218,7 @@
 
         // 5. 맵 로드/리로드 함수
         async function loadMap(lat = null, lon = null, lri = null, grade = null) {
+            console.log('[Parent] loadMap function called with params:', { lat, lon, lri, grade });
             try {
                 let url = `${API_BASE_URL}/api/map`;
                 const params = new URLSearchParams();
