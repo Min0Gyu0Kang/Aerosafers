@@ -1,75 +1,80 @@
-<img width="1003" height="710" alt="image" src="https://github.com/user-attachments/assets/cef0a540-6693-4020-8502-9f8bc87c3b42" /># LRI 기반 모의 테스트(Mock Test)
+# 항공기 착륙 위험 정도 예측 모델 (LRI Engine)
 ## 2025 스페이스 해커톤 Aerosafers팀 웹사이트
 
 초기 화면
-<img width="1842" height="862" alt="image" src="https://github.com/user-attachments/assets/6e190259-0b5e-49e0-a210-e8d279f89639" />
 
-실행 후
-<img width="723" height="795" alt="image" src="https://github.com/user-attachments/assets/b5b25dc0-37cc-40a9-95f7-0597fd89f5c5" />
+<img width="549" height="289" alt="image" src="https://github.com/user-attachments/assets/d31e6cd8-c15d-43b0-b25f-4a9cff0510a7" />
 
+* 노란 영역은 ‘인천 FIR 공역’으로 ‘KASS’를 비롯한 ‘LRI Engine 서비스 커버리지’ 
 
 이 프로그램은 LRI(Landing Risk Index) 모델의 미리 정의된 파라미터와 수식들을 적용하여, Node.js 기반 프런트엔드와 Python Uvicorn 백엔드를 내부 코드로 연계한다.
 
-실제 위성 데이터(NetCDF, RINEX)를 파싱하는 복잡한 로직 대신, LRI 계산에 필요한 파라미터를 임의의 저장한 데이터 (Preset)로 대체하여 LRI 산출 로직과 기술 스택 연동 구조를 시연하는 데 중점을 둔다. 
-
-맵 영역이 비워져 있는 이유는 추가 구현시 python anaconda venv 기반 고도화된 환경으로 GeoPandas Mapbox/Leaflet 구축이 추가되어야 하기 때문에 해당 버전은 간단한 실험부터 진행함.
+실제 위성 데이터(NetCDF, RINEX)를 파싱하는 복잡한 로직 대신, LRI 계산에 필요한 파라미터를 위도 경도 등등의 간단한 입력값으로 대체하여 LRI 산출 로직과 기술 스택 연동 구조를 시연하는 데 중점을 둔다. 
+지도 활용은 gpd GeoJSON을 작업한 leaflet 기반으로 실행한다.
 
 ## 가능한 상호 작용:
 
-## LRI 지수 선택
+## 위도 경도 입력
+지도상의 위치 (longitude, latitude) 값을 입력할 수 있다.
+## 비행체 종류 선택
 
-<img width="229" height="186" alt="image" src="https://github.com/user-attachments/assets/b1060f0c-3b54-4149-88f4-a77dae56e492" />
+<img width="435" height="242" alt="image" src="https://github.com/user-attachments/assets/f5a1f762-e8b9-46d3-9e15-f79eebf1dab1" />
 
-Scenario 옆의 드롭다운 막대를 선택하면 내부의 random, very_good, severe, warning, hard_stop, random 선택지 중 택 1을 할 수 있다. 
-### 시나리오 설명: 
+선택 가능한 UAM 이름: CTOL, STOL, VTOL, eVTOL, eCTOL, eSTOL
+## 비행 기체 구분 선택
 
-random: default와 동일, 데이터 값도 무작위로 전달받음.
+<img width="437" height="144" alt="image" src="https://github.com/user-attachments/assets/4ef2aab3-1679-47ac-9cfa-09b462876bd4" />
 
-very_good: 항공기 착륙 가능인 경우. 초록으로 표시.
+선택 가능한 구분: 고정익, 회전익
+## 분석 실행 시
+### Best case scenario
 
-severe: 항공기 착륙에 충돌이 많이 우려될 경우. 빨강으로 표시.
+착륙 위험 정도: 미미/없음 aka Very Good
 
-warning: 항공기 착륙에 난항이 예상되는 경우. 노랑으로 표시.
+<img width="549" height="289" alt="image" src="https://github.com/user-attachments/assets/e592ad61-b3de-4e39-aee8-6c796d692b81" />
 
-hard_stop: 항공기 착륙 불가인 경우. 색이 페이드 인/아웃하는 빨강 계열로 표시.
 
-## 맵 영역 클릭 시 (지도 없는 상태로 테스트)
+### Worst case scenarios 
+착륙 위험 정도: 착륙 불가 aka Hard Stop
 
-<img width="875" height="862" alt="스크린샷 2025-11-10 223653" src="https://github.com/user-attachments/assets/ef9f891a-eae1-45f1-9b1e-35d758a460f9" />
+시나리오 A: 구름으로 인한 시경/기상 악화 상황
 
-<img width="888" height="823" alt="스크린샷 2025-11-10 223746" src="https://github.com/user-attachments/assets/f3b91ee5-8311-4448-9dfe-def7e0e42c71" />
+![시나리오 A](https://github.com/user-attachments/assets/47215941-abe3-4d12-b683-b956d5b08663)
 
-<img width="849" height="837" alt="스크린샷 2025-11-10 223755" src="https://github.com/user-attachments/assets/e75d4a1a-c82b-4a73-92ce-a874187cb3b2" />
 
-<img width="1011" height="835" alt="스크린샷 2025-11-10 223806" src="https://github.com/user-attachments/assets/b300f876-fce7-4a45-9446-2c09a48327d8" />
+시나리오 B: 항법 무결성/오류로 인한 상황
 
-초기 화면의 LRI 계산 결과가 표시됩니다 영역이 결과값으로 채워짐.
+![시나리오 B](https://github.com/user-attachments/assets/70d78c9d-c9f3-4211-b92f-46dee81a4d14)
+
+시나리오 C: 인근 산악/구조물이 있는 상황  
+
+![시나리오 C](https://github.com/user-attachments/assets/2e13e24c-bc96-4fa5-8e34-b6d1412e0ce8)
 
 ### 확인 가능한 값:
 분석결과: 
-맵 위치에서 선택 지정한 위도와 경도를 확인 가능. (모의에서는 임의 데이터 값들만 확인이 가능)
+맵 위치에서 선택 지정한 위도와 경도에 비행기가 표시된 것을 확인 가능. 
 
 최종등급: 
 LRI 시나리오 명칭과 그 수치를 확인 가능. 
 
 전달받은 3대 위험 요소 점수:
-가시성 점수 V, 항법 무결성 점수 N, 표면 지형 점수 S 의 값들을 확인 가능
+천리안 날씨 정보: Weather, KASS 정보: Navigation, 아리랑 정보: Terrain 의 값들을 확인 가능
 
 
 근거(위성데이터 융합):최종 등급을 결정 지은 하위 요인들을 총 3개 수치화하여 시각적으로 표시한다.
 
-<img width="535" height="247" alt="image" src="https://github.com/user-attachments/assets/e4e6d542-d16f-4981-b317-d171aca285ee" />
+<img width="422" height="856" alt="image" src="https://github.com/user-attachments/assets/517d7b02-6fa2-4600-861f-0778f5e314db" />
 
 하위 항목: 
 
 가시성값: 구름 감쇠계수로 인한 감점의 정도를 나타냄.
+예) W-Score: 55.76, 구름 감쇠: 0.44, 시정: 37.8
 
-항법값: HPL값으로 일어나는 항법 무결성 정도를 나타냄.
+항법값: HPL VPL값으로 일어나는 항법 무결성 정도를 나타냄. 
+예) N-Score: 100, HPL: 16.7m, VPL: 14.8m
 
-- 결과 1: 유지 상태
-- 결과 2: 저하 상태 
-
-지형값: 장애물 비율을 나타냄. 추가로 표면 습윤/결빙 위험값을 나타냄. 
+지형값: 장애물 비율을 나타냄. 
+예) T-Score: 19.71, 지형 복잡도: 0.01
 
 ## 로컬 환경 설치 방법
 우분투 Ubuntu 기반 테스트 메뉴얼임을 유의.
@@ -102,35 +107,14 @@ npm install
 
 ### 프론트엔드만 실행 run frontend only
 ```bash
-npm run frontend
+npm run ㄴstart
 ```
 
 ### 백엔드만 실행 run backend only
 ```bash
 npm run backend
-```
-
-### 백엔드: 위험지수별 테스트 (scenario curl testing)
-
-#### 위도 경도 시나리오 값 넘겨주기 change lat, lon, and scenario names for checking. Examples below
-
-```bash
-curl -s -X POST http://127.0.0.1:8000/api/calculate_lri \
-    -H "Content-Type: application/json" \
-    -d '{"lat":37.5,"lon":127.0,"scenario":"severe"}'
-
-curl -s -X POST http://127.0.0.1:8000/api/calculate_lri \
-    -H "Content-Type: application/json" \
-    -d '{"lat":37.5,"lon":127.0,"scenario":"warning"}'
-
-curl -s -X POST http://127.0.0.1:8000/api/calculate_lri \
-    -H "Content-Type: application/json" \
-    -d '{"lat":37.5,"lon":127.0,"scenario":"hard_stop"}'
-
-curl -s -X POST http://127.0.0.1:8000/api/calculate_lri \
-    -H "Content-Type: application/json" \
-    -d '{"lat":37.5,"lon":127.0,"scenario":"very_good"}'
-
+<verify it is running>
+curl -v http://127.0.0.1:8000/api/map
 ```
 
 ### (최종 사이트 환경) 동시에 실행 run frontend + backend concurrently
@@ -138,16 +122,23 @@ curl -s -X POST http://127.0.0.1:8000/api/calculate_lri \
 npm run dev
 ```
 
+### Chack: Is both frontend and backend properly executed?
+```bash
+[frontend]   http://172.27.105.189:3000
+[frontend] Hit CTRL-C to stop the server
+[frontend] Open: http://127.0.0.1:3000
+[backend] INFO:     Will watch for changes in these directories: ['/mnt/d/usage/noacademics/space hackathon/aerosafers']
+[backend] INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+[backend] INFO:     Started reloader process [2502] using StatReload
+```
+Must see this line to be functional
 ### 로컬 환경 사이트 연결 해제 send Termination of server connection
 after ctrl+c
 
 ```bash
-[frontend] npm run frontend exited with code SIGINT
-[backend]
 [backend] Shutting down backend server gracefully...
-[backend] INFO:     Stopping reloader process [2956]
-[backend] npm run backend exited with code SIGINT
+[frontend] npm run frontend exited with code SIGINT
 ```
-모두 vscode 콘솔에서 확인되면 완료! Website port terminated successfully
+모두 vscode 콘솔에서 확인되면 해제 완료! Website port terminated successfully
 
 
