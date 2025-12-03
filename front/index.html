@@ -68,8 +68,9 @@
     <script>
         // --- CONFIGURATION ---
         // Use the current page origin so calls go to the same origin (nginx will proxy /api/)
-        const API_BASE_URL = window.location.origin;
-        // For local-only testing you can override with: const API_BASE_URL = 'http://127.0.0.1:8000';
+        // const API_BASE_URL = window.location.origin;
+        // For local-only testing you can override with: 
+        const API_BASE_URL = 'http://127.0.0.1:8000';
         // -------------------
 
         const latInput = document.getElementById('lat-input');
